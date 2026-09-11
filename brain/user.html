@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Page2Reading · 怎么用</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #211c16;
+      --paper: #efe4cf;
+      --sheet: #fffaf2;
+      --rule: #d3c2a6;
+      --mark: #8b2e1f;
+      --quiet: #6a5e50;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 10% 0%, #f7eedc 0%, transparent 40%),
+        var(--paper);
+      color: var(--ink);
+      font-family: "Source Sans 3", "PingFang SC", sans-serif;
+      line-height: 1.6;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 40px 22px 88px; }
+    .brand {
+      font-size: 12px;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: var(--mark);
+      font-weight: 700;
+    }
+    h1 {
+      font-family: Fraunces, serif;
+      font-size: clamp(34px, 8vw, 52px);
+      line-height: 1.05;
+      margin: 8px 0 12px;
+    }
+    .one {
+      font-family: Fraunces, serif;
+      font-style: italic;
+      font-size: 22px;
+      color: var(--quiet);
+      margin: 0 0 28px;
+    }
+    h2 {
+      font-family: Fraunces, serif;
+      font-size: 22px;
+      margin: 36px 0 10px;
+    }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .btn-demo {
+      background: var(--sheet);
+      border: 1px solid var(--ink);
+      padding: 18px 16px;
+    }
+    .btn-demo em { font-style: normal; display: block; font-size: 13px; color: var(--quiet); margin-top: 6px; }
+    .btn-demo.dark { background: var(--ink); color: var(--sheet); }
+    .folder {
+      background: var(--sheet);
+      border: 1px dashed var(--rule);
+      padding: 14px 16px;
+      font-family: ui-monospace, Menlo, monospace;
+      font-size: 13px;
+      white-space: pre;
+      overflow-x: auto;
+    }
+    ol { padding-left: 1.2em; }
+    li { margin: 8px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; background: var(--sheet); }
+    th, td { border: 1px solid var(--rule); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: #e8dcc6; }
+    .note {
+      border-top: 2px solid var(--ink);
+      margin-top: 40px;
+      padding-top: 12px;
+      font-size: 13px;
+      color: var(--quiet);
+    }
+    @media (max-width: 640px) { .pair { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand">纸质阅读工具</div>
+    <h1>Page2Reading</h1>
+    <p class="one">网上的长文，变成你桌上那一叠可以装订的纸。</p>
+
+    <p>打开一篇英文技术博客，点一下 Chrome 扩展。关掉页面也没关系。过一会儿，桌面上会多出排好版的 PDF——可以是原文，也可以是一段英文一段中文的对照稿。周末打印、装订，每天当报纸看一篇。</p>
+
+    <h2>你只需要点其中一个</h2>
+    <div class="pair">
+      <div class="btn-demo">
+        导出原文 PDF
+        <em>适合已经读得懂、只想要干净打印稿</em>
+      </div>
+      <div class="btn-demo dark">
+        导出中英对照 PDF
+        <em>适合想跟着讲解把文章看下来</em>
+      </div>
+    </div>
+
+    <h2>印出来长什么样</h2>
+    <ul>
+      <li>A4，适合长时间看，不是网页那种窄栏。</li>
+      <li>文章正文从第一页就开始，不拿标题栏挡你。</li>
+      <li>写完才看到来源：标题、作者、日期、链接，旁边一个二维码，手机扫就能回原文。</li>
+      <li>图会印在 PDF 里。不另存一堆图片文件。</li>
+    </ul>
+
+    <h2>文件会出现在哪</h2>
+    <p>默认在电脑桌面的 <strong>Page2Reading</strong> 文件夹，按当天日期分开放：</p>
+    <div class="folder">Page2Reading/
+└── 20260911/
+    ├── or-文章标题.md
+    ├── or-文章标题.pdf
+    ├── tr-文章标题.md
+    └── tr-文章标题.pdf</div>
+    <p><code>or-</code> 是原文，<code>tr-</code> 是对照。只导出原文时，不会有 <code>tr-</code> 那两个文件。</p>
+    <p>飞书表格里会记：标题、链接、作者、日期，以及这两个文件在电脑上的路径。表格打不开文件本身，路径是给你找打印稿用的。</p>
+
+    <h2>第一次怎么接上</h2>
+    <ol>
+      <li>电脑要是 Mac，装着 Google Chrome 和 Node.js 20 以上。</li>
+      <li>在项目里复制 <code>.env.example</code> 为 <code>.env</code>，填上 DeepSeek 的 API Key。飞书可以以后再填。</li>
+      <li>终端运行 <code>npm install</code>，再 <code>npm run build:extension</code>，再 <code>npm run serve</code>。</li>
+      <li>另开终端运行 <code>npm run cli -- token</code>，复制那一串令牌。</li>
+      <li>Chrome 打开扩展页，打开开发者模式，加载项目里的 <code>apps/extension/dist</code>。</li>
+      <li>扩展选项里填服务地址 <code>http://127.0.0.1:17321</code> 和刚才的令牌。</li>
+    </ol>
+    <p>以后每次用之前，本机服务要在跑。不想每次手开，可以运行一次 <code>bash scripts/install-launchagent.sh</code>，开机后会自己起来。</p>
+
+    <h2>卡住了先看这里</h2>
+    <table>
+      <thead>
+        <tr><th>你看到什么</th><th>多半是</th><th>先试什么</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>提示本地服务未启动</td>
+          <td>没开 <code>npm run serve</code></td>
+          <td>开服务后再点一次</td>
+        </tr>
+        <tr>
+          <td>提示未配置令牌 / unauthorized</td>
+          <td>选项页令牌不对</td>
+          <td>重新 <code>npm run cli -- token</code> 贴进去</td>
+        </tr>
+        <tr>
+          <td>扩展说已经导出过</td>
+          <td>同一链接同一模式做过了</td>
+          <td>换对照/原文，或让开发者强制重跑</td>
+        </tr>
+        <tr>
+          <td>桌面有 PDF，飞书没有</td>
+          <td>表格列名不齐或没填飞书密钥</td>
+          <td>七个列都建成「文本」后再重试任务</td>
+        </tr>
+        <tr>
+          <td>PDF 里图是空的</td>
+          <td>出 PDF 时图没加载完</td>
+          <td>联网后重跑这一篇</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      这不是网盘，也不是在线翻译网站。文章和密钥都留在你这台电脑上。更细的安装步骤以仓库 README 为准。
+    </div>
+  </div>
+</body>
+</html>

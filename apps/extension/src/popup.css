@@ -1,0 +1,65 @@
+:root {
+  color: #1c1917;
+  font-family: "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 280px;
+  background: #f6f1e8;
+}
+
+main {
+  padding: 16px;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.title {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #57534e;
+  line-height: 1.4;
+  max-height: 3.2em;
+  overflow: hidden;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+button {
+  border: 1px solid #d6c7b2;
+  background: #fff;
+  border-radius: 8px;
+  padding: 9px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button.primary {
+  background: #1c1917;
+  color: #fff;
+  border-color: #1c1917;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.status {
+  min-height: 2.4em;
+  font-size: 12px;
+  color: #44403c;
+}
+
+a {
+  color: #57534e;
+  font-size: 12px;
+}

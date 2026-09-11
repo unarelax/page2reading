@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Page2Reading",
+  "version": "0.1.0",
+  "description": "把当前文章导出为可打印 Markdown / PDF",
+  "action": {
+    "default_title": "Page2Reading",
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_page": "src/options.html",
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1/*"]
+}
