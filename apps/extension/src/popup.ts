@@ -1,12 +1,42 @@
+import type { SubmitMessage, TaskRecord, TaskStatus } from "./types.js";
+
 type Mode = "original" | "bilingual";
 
 const titleEl = document.getElementById("title")!;
 const statusEl = document.getElementById("status")!;
 const originalBtn = document.getElementById("original") as HTMLButtonElement;
 const bilingualBtn = document.getElementById("bilingual") as HTMLButtonElement;
+const tasksEl = document.getElementById("tasks")!;
 
 function setStatus(text: string) {
   statusEl.textContent = text;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function statusText(status: TaskStatus): string {
+  switch (status) {
+    case "queued":
+      return "排队中";
+    case "extracting":
+      return "抽取中";
+    case "translating":
+      return "翻译中";
+    case "rendering":
+      return "生成 PDF";
+    case "succeeded":
+      return "完成";
+    case "succeeded_with_warnings":
+      return "完成（缺图）";
+    case "failed":
+      return "失败";
+  }
 }
 
 async function currentTab() {
@@ -37,30 +67,41 @@ async function submit(mode: Mode) {
   try {
     const tab = await currentTab();
     const page = await capture(tab.id!);
-    const res = await chrome.runtime.sendMessage({
+    const res = (await chrome.runtime.sendMessage({
       type: "submit",
       mode,
       url: page.url,
       pageTitle: page.pageTitle,
       html: page.html,
-    });
+    } satisfies SubmitMessage)) as { error?: string; duplicate?: boolean; taskId?: string };
     if (res?.error) throw new Error(res.error);
     if (res?.duplicate) {
-      setStatus("这篇文章已经导出过。如需重做，可在本地服务重试该任务。");
+      setStatus("这篇文章已经导出过。");
       return;
     }
-    setStatus(`已加入队列：${res?.taskId ?? ""}`);
+    setStatus(`已加入队列，可关闭本页。`);
+    await refreshTasks();
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/Failed to fetch|NetworkError|本地服务/.test(message)) {
-      setStatus("提交失败：本地服务未启动。请先运行 npm run serve");
-    } else {
-      setStatus(message);
-    }
+    setStatus(err instanceof Error ? err.message : String(err));
   } finally {
     originalBtn.disabled = false;
     bilingualBtn.disabled = false;
   }
+}
+
+async function refreshTasks() {
+  const tasks = (await chrome.runtime.sendMessage({ type: "get-task-list" })) as TaskRecord[];
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    tasksEl.innerHTML = "";
+    return;
+  }
+  tasksEl.innerHTML = tasks
+    .slice(0, 8)
+    .map((t) => {
+      const title = t.pageTitle || t.url;
+      return `<div class="task" title="${escapeHtml(t.url)}"><span class="dot ${t.status}"></span><span class="task-title">${escapeHtml(title)}</span><span class="task-status">${statusText(t.status)}</span></div>`;
+    })
+    .join("");
 }
 
 currentTab()
@@ -68,6 +109,8 @@ currentTab()
     titleEl.textContent = tab.title || tab.url || "当前页面";
   })
   .catch((err: Error) => setStatus(err.message));
+
+refreshTasks().catch(() => undefined);
 
 originalBtn.addEventListener("click", () => submit("original"));
 bilingualBtn.addEventListener("click", () => submit("bilingual"));

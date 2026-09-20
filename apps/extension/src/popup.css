@@ -5,7 +5,7 @@
 
 body {
   margin: 0;
-  width: 280px;
+  width: 320px;
   background: #f6f1e8;
 }
 
@@ -59,7 +59,64 @@ button:disabled {
   color: #44403c;
 }
 
-a {
+.tasks {
+  margin-top: 6px;
+  border-top: 1px solid #e7dcc9;
+  padding-top: 8px;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow: hidden;
+}
+
+.task-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #44403c;
+}
+
+.task-status {
+  color: #78716c;
+  flex: none;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: #c9bda6;
+}
+
+.dot.succeeded {
+  background: #3f9d63;
+}
+
+.dot.succeeded_with_warnings {
+  background: #d9a441;
+}
+
+.dot.failed {
+  background: #c0392b;
+}
+
+.dot.queued,
+.dot.extracting,
+.dot.translating,
+.dot.rendering {
+  background: #5b8def;
+}
+
+.settings-link {
+  display: inline-block;
+  margin-top: 10px;
   color: #57534e;
   font-size: 12px;
 }

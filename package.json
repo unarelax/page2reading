@@ -1,20 +1,16 @@
 {
   "name": "page2reading",
   "private": true,
-  "version": "0.1.0",
-  "description": "Chrome 一键导出技术文章为可打印 Markdown / PDF，并登记到飞书",
+  "version": "0.2.0",
+  "description": "把 Chrome 当前文章一键导出为可打印 Markdown / PDF（原文 / 中英对照）",
   "workspaces": [
-    "packages/*",
     "apps/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @page2reading/local-service",
-    "serve": "npm run start -w @page2reading/local-service",
-    "cli": "npm run cli -w @page2reading/local-service --",
-    "build": "npm run build -w @page2reading/extension && npm run build -w @page2reading/local-service",
-    "build:extension": "npm run build -w @page2reading/extension",
+    "dev": "npm run dev -w @page2reading/extension",
+    "build": "npm run build -w @page2reading/extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test -w @page2reading/local-service"
+    "package": "npm run build && node scripts/package.mjs"
   },
   "engines": {
     "node": ">=20"

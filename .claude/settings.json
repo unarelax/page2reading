@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p apps/extension/src/lib/prompts apps/extension/src/pdf scripts)",
+      "Bash(cp prompts/tech-translate.md apps/extension/src/lib/prompts/tech-translate.md)",
+      "Bash(cp apps/local-service/src/pdf/style.css apps/extension/src/pdf/style.css)",
+      "Bash(npm install *)",
+      "Bash(npm run *)"
+    ]
+  }
+}

@@ -4,7 +4,7 @@ dist/
 .env
 .env.local
 *.log
-apps/local-service/data/
 apps/extension/dist/
 **/*.tsbuildinfo
 .page2reading/
+releases/
