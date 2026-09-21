@@ -2,6 +2,7 @@
   "name": "page2reading",
   "private": true,
   "version": "0.2.0",
+  "license": "MIT",
   "description": "把 Chrome 当前文章一键导出为可打印 Markdown / PDF（原文 / 中英对照）",
   "workspaces": [
     "apps/*"
@@ -11,6 +12,9 @@
     "build": "npm run build -w @page2reading/extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "package": "npm run build && node scripts/package.mjs"
+  },
+  "devDependencies": {
+    "archiver": "^7.0.1"
   },
   "engines": {
     "node": ">=20"

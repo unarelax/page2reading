@@ -66,6 +66,57 @@ function absolutizeMedia(document: Document, baseUrl: string): void {
   }
 }
 
+const CHROME_SELECTORS = [
+  "footer",
+  "nav",
+  "aside",
+  '[role="navigation"]',
+  '[role="contentinfo"]',
+  '[role="complementary"]',
+  "#comments",
+  ".comments",
+  "#disqus_thread",
+  ".post-responses",
+  "#post_responses",
+].join(", ");
+
+const ARTICLE_MIN_CHARS = 200;
+
+function visibleTextLength(el: Element): number {
+  return (el.textContent || "").replace(/\s+/g, " ").trim().length;
+}
+
+function stripChrome(document: Document): void {
+  for (const el of document.querySelectorAll(CHROME_SELECTORS)) el.remove();
+}
+
+function pickScopedRoot(document: Document): Element | null {
+  const specific = document.querySelector(".post-body, [itemprop='articleBody']");
+  if (specific && visibleTextLength(specific) >= ARTICLE_MIN_CHARS) return specific;
+
+  const articles = [...document.querySelectorAll("article")].filter(
+    (el) => visibleTextLength(el) >= ARTICLE_MIN_CHARS,
+  );
+  if (articles.length === 0) return null;
+  articles.sort((a, b) => visibleTextLength(b) - visibleTextLength(a));
+  return articles[0];
+}
+
+function parseReadable(document: Document) {
+  return new Readability(document, { charThreshold: 80 }).parse();
+}
+
+function extractReadable(document: Document) {
+  const root = pickScopedRoot(document);
+  if (root) {
+    const scoped = document.implementation.createHTMLDocument(document.title);
+    scoped.body.appendChild(root.cloneNode(true));
+    const parsed = parseReadable(scoped);
+    if (parsed?.content) return parsed;
+  }
+  return parseReadable(document);
+}
+
 function createTurndown(): TurndownService {
   const td = new TurndownService({
     headingStyle: "atx",
@@ -90,6 +141,7 @@ function createTurndown(): TurndownService {
 export function extractArticle(html: string, pageUrl: string, fallbackTitle?: string): ExtractedArticle {
   const document = new DOMParser().parseFromString(html, "text/html");
   for (const el of document.querySelectorAll("script, style, noscript, iframe")) el.remove();
+  stripChrome(document);
   absolutizeMedia(document, pageUrl);
 
   const jsonLd = collectJsonLd(document);
@@ -100,8 +152,7 @@ export function extractArticle(html: string, pageUrl: string, fallbackTitle?: st
       return types.some((x) => String(x).toLowerCase().includes("article"));
     }) ?? jsonLd[0];
 
-  const reader = new Readability(document, { charThreshold: 80 });
-  const parsed = reader.parse();
+  const parsed = extractReadable(document);
   if (!parsed?.content) {
     throw new Error("无法提取正文，请确认当前页是一篇完整文章");
   }

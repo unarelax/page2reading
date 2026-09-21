@@ -1,5 +1,4 @@
 import { collectedDayStamp, slugifyTitle } from "./util.js";
-import type { ExportMode } from "../types.js";
 
 export interface ArticleFiles {
   dir: string;
@@ -67,8 +66,4 @@ export function parseFrontmatter(src: string): {
     }
   }
   return { body, title, sourceUrl, author, published, collected };
-}
-
-export function pickMarkdown(files: ArticleFiles, mode: ExportMode): string {
-  return mode === "bilingual" ? files.bilingualMarkdown : files.originalMarkdown;
 }

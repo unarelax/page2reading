@@ -20,23 +20,10 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function statusText(status: TaskStatus): string {
-  switch (status) {
-    case "queued":
-      return "排队中";
-    case "extracting":
-      return "抽取中";
-    case "translating":
-      return "翻译中";
-    case "rendering":
-      return "生成 PDF";
-    case "succeeded":
-      return "完成";
-    case "succeeded_with_warnings":
-      return "完成（缺图）";
-    case "failed":
-      return "失败";
-  }
+function taskKind(status: TaskStatus): "exporting" | "ok" | "retry" {
+  if (status === "succeeded" || status === "succeeded_with_warnings") return "ok";
+  if (status === "failed") return "retry";
+  return "exporting";
 }
 
 async function currentTab() {
@@ -63,7 +50,6 @@ async function capture(tabId: number) {
 async function submit(mode: Mode) {
   originalBtn.disabled = true;
   bilingualBtn.disabled = true;
-  setStatus("正在提交…");
   try {
     const tab = await currentTab();
     const page = await capture(tab.id!);
@@ -73,13 +59,9 @@ async function submit(mode: Mode) {
       url: page.url,
       pageTitle: page.pageTitle,
       html: page.html,
-    } satisfies SubmitMessage)) as { error?: string; duplicate?: boolean; taskId?: string };
+    } satisfies SubmitMessage)) as { error?: string; taskId?: string };
     if (res?.error) throw new Error(res.error);
-    if (res?.duplicate) {
-      setStatus("这篇文章已经导出过。");
-      return;
-    }
-    setStatus(`已加入队列，可关闭本页。`);
+    setStatus("导出中，需保持浏览器开着，保持网络连接");
     await refreshTasks();
   } catch (err) {
     setStatus(err instanceof Error ? err.message : String(err));
@@ -99,7 +81,12 @@ async function refreshTasks() {
     .slice(0, 8)
     .map((t) => {
       const title = t.pageTitle || t.url;
-      return `<div class="task" title="${escapeHtml(t.url)}"><span class="dot ${t.status}"></span><span class="task-title">${escapeHtml(title)}</span><span class="task-status">${statusText(t.status)}</span></div>`;
+      const kind = taskKind(t.status);
+      const action =
+        kind === "retry"
+          ? `<button type="button" class="task-action" data-url="${escapeHtml(t.url)}">重试</button>`
+          : `<span class="task-status">${kind === "ok" ? "成功" : "导出中"}</span>`;
+      return `<div class="task" title="${escapeHtml(t.url)}"><span class="dot ${kind}"></span><span class="task-title">${escapeHtml(title)}</span>${action}</div>`;
     })
     .join("");
 }
@@ -111,6 +98,17 @@ currentTab()
   .catch((err: Error) => setStatus(err.message));
 
 refreshTasks().catch(() => undefined);
+setInterval(() => {
+  refreshTasks().catch(() => undefined);
+}, 1500);
+
+tasksEl.addEventListener("click", (ev) => {
+  const btn = (ev.target as HTMLElement).closest("button.task-action");
+  if (!(btn instanceof HTMLButtonElement)) return;
+  const url = btn.dataset.url;
+  if (!url || !/^https?:/.test(url)) return;
+  void chrome.tabs.create({ url });
+});
 
 originalBtn.addEventListener("click", () => submit("original"));
 bilingualBtn.addEventListener("click", () => submit("bilingual"));

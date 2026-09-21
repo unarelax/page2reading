@@ -66,9 +66,16 @@ function extractStyleAnchors(translated: string): string[] {
   return [colloquial, term, transition].filter((p): p is string => Boolean(p)).slice(0, 3);
 }
 
-async function chat(apiKey: string, model: string, system: string, user: string): Promise<string> {
+async function chat(
+  apiKey: string,
+  model: string,
+  system: string,
+  user: string,
+  signal?: AbortSignal,
+): Promise<string> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (signal?.aborted) throw new Error("导出超时，请保持浏览器开着后重试");
     try {
       const res = await fetch(`${DEEPSEEK_BASE_URL}/chat/completions`, {
         method: "POST",
@@ -76,6 +83,7 @@ async function chat(apiKey: string, model: string, system: string, user: string)
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
+        signal,
         body: JSON.stringify({
           model,
           temperature: 0.4,
@@ -97,6 +105,9 @@ async function chat(apiKey: string, model: string, system: string, user: string)
       if (!text?.trim()) throw new Error("模型返回空内容");
       return stripModelWrapper(text);
     } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        throw new Error("导出超时，请保持浏览器开着后重试");
+      }
       lastError = err;
       const status = (err as { status?: number }).status;
       if (status && status !== 429 && status < 500) throw err;
@@ -124,9 +135,27 @@ function validateTranslation(originalBody: string, translated: string): string[]
   return errors;
 }
 
+function stripLeadingFrontmatter(text: string): string {
+  let t = text.trim();
+  // 模型偶尔会把 frontmatter 包进 ```yaml / ``` 围栏
+  const fenced = t.match(/^```(?:ya?ml)?[ \t]*\n([\s\S]*?)\n```[ \t]*\n?/i);
+  if (fenced && /^---/.test(fenced[1].trim()) && /:\s*["']?/.test(fenced[1])) {
+    t = t.slice(fenced[0].length).replace(/^\s+/, "");
+  }
+  // 裸 --- ... --- 形式（仅当内容像 YAML）
+  if (t.startsWith("---")) {
+    const end = t.indexOf("\n---", 3);
+    if (end !== -1 && /:\s*["']?/.test(t.slice(3, end))) {
+      t = t.slice(end + 4).replace(/^\s+/, "");
+    }
+  }
+  return t;
+}
+
 export async function translateBilingual(
   originalMarkdown: string,
   settings: ExtensionSettings,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!settings.apiKey) throw new Error("未配置 DeepSeek API Key");
   const { frontmatter, body } = splitFrontmatter(originalMarkdown);
@@ -147,33 +176,30 @@ export async function translateBilingual(
         : "";
     const user =
       chunks.length === 1
-        ? `请把下面整篇英文 Markdown 翻成段落级中英对照。YAML frontmatter 原样放在最顶部。\n\n${originalMarkdown}`
-        : `这是长文的第 ${i + 1}/${chunks.length} 段。只翻译这一段，不要重复其他段。${
-            i === 0 ? "先输出 YAML frontmatter（原样），再输出本段对照正文。" : "不要输出 frontmatter。"
-          }${extra}\n\n${i === 0 ? frontmatter : ""}${chunk}`;
+        ? `请把下面整篇英文 Markdown 正文翻成段落级中英对照。只翻译正文，不要输出 YAML frontmatter。\n\n${body}`
+        : `这是长文的第 ${i + 1}/${chunks.length} 段。只翻译这一段正文，不要重复其他段，也不要输出任何 frontmatter 或代码围栏。${extra}\n\n${chunk}`;
 
-    let translated = await chat(settings.apiKey, settings.model, prompt, user);
-    if (i === 0) {
-      if (!translated.startsWith("---") && frontmatter) translated = frontmatter + translated;
-      anchors = extractStyleAnchors(translated);
-    } else if (translated.startsWith("---")) {
-      const split = splitFrontmatter(translated);
-      translated = split.body;
-    }
+    const translated = stripLeadingFrontmatter(
+      await chat(settings.apiKey, settings.model, prompt, user, signal),
+    );
+    if (i === 0) anchors = extractStyleAnchors(translated);
     parts.push(translated.trim());
   }
 
   const merged = parts.join("\n\n").replace(/\n{3,}/g, "\n\n") + "\n";
-  const errors = validateTranslation(body, splitFrontmatter(merged).body);
+  const errors = validateTranslation(body, merged);
   if (errors.length) {
-    const repaired = await chat(
-      settings.apiKey,
-      settings.model,
-      prompt,
-      `下面这篇中英对照译文未通过校验：${errors.join("；")}。请在不改变翻译风格的前提下修复，并输出完整修正后的 Markdown（含 frontmatter）。\n\n原文：\n${originalMarkdown}\n\n当前译文：\n${merged}`,
+    const repaired = stripLeadingFrontmatter(
+      await chat(
+        settings.apiKey,
+        settings.model,
+        prompt,
+        `下面这篇中英对照译文未通过校验：${errors.join("；")}。请在不改变翻译风格的前提下修复，并输出完整修正后的正文（不要输出 frontmatter）。\n\n原文：\n${body}\n\n当前译文：\n${merged}`,
+        signal,
+      ),
     );
-    const repairedErrors = validateTranslation(body, splitFrontmatter(repaired).body);
-    if (repairedErrors.length === 0) return repaired.startsWith("---") ? repaired : frontmatter + repaired;
+    const repairedErrors = validateTranslation(body, repaired);
+    if (repairedErrors.length === 0) return frontmatter + repaired;
   }
-  return merged.startsWith("---") ? merged : frontmatter + merged;
+  return frontmatter + merged;
 }

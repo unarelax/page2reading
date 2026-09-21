@@ -1,16 +1,22 @@
 # Page2Reading
 
+Chrome extension that exports the current article as printable Markdown and PDF (original, or bilingual via DeepSeek). No backend and no local Node service — files are written to a folder you pick.
+
 把 Chrome 当前文章一键导出为适合打印的 Markdown 和 PDF，支持原文模式和中英对照模式（对照模式用 DeepSeek 翻译）。**纯浏览器扩展，无需安装 Node.js 或本地服务**，文件直接写入你选定的本地目录。
 
 ## 功能
 
 - **原文 PDF**：抽取正文，保存 `or-标题.md` + `or-标题.pdf`
-- **中英对照 PDF**：保存 `or-标题.md` + `tr-标题.md` + `tr-标题.pdf`
+- **中英对照 PDF**：保存 `tr-标题.md` + `tr-标题.pdf`
 - 图片不单独存盘，生成 PDF 时联网加载；失败图片会标记为「完成（缺图）」
 - 标题、作者、日期、链接和来源二维码印在 PDF 文末
 - 重复提交同一篇文章会提示「已导出过」
 
 ## 安装
+
+只从本仓库的 GitHub Releases 或自行从源码构建加载。不要安装来路不明的 zip。
+
+Chrome 加载后可能会提示本扩展正在调试浏览器：这是生成 PDF 需要的 `debugger` 权限。扩展**只**对自己创建的隐藏渲染页调用 `Page.printToPDF`，不会附加到你正在阅读的标签页。
 
 ### 方式一：下载发行包（推荐，无需 Node）
 
@@ -38,15 +44,15 @@ npm run build            # 产物在 apps/extension/dist/
 3. **本地保存目录**：点「选择目录」，选一个文件夹，导出的文件都写到这里
 4. 点「保存」
 
-保存目录按日期归档：
+保存目录按日期归档（原文模式产出 `or-*` 一对，对照模式产出 `tr-*` 一对）：
 
 ```text
 你选的目录/
 └── 20260919/
-    ├── or-article-title.md
-    ├── or-article-title.pdf
-    ├── tr-article-title.md
-    └── tr-article-title.pdf
+    ├── or-article-title.md   ┐ 原文模式
+    ├── or-article-title.pdf  ┘
+    ├── tr-article-title.md   ┐ 中英对照模式
+    └── tr-article-title.pdf  ┘
 ```
 
 > 重启浏览器后若目录权限失效，设置页会出现「重新授权」按钮，点一下即可。
@@ -58,6 +64,14 @@ npm run build            # 产物在 apps/extension/dist/
 3. 点「导出原文 PDF」或「导出中英对照 PDF」
 4. 提示「已加入队列」后即可关闭页面，后台会自动完成抽取、翻译、生成 PDF 并写入目录
 
+## 权限与隐私
+
+- **没有后端**。DeepSeek API Key 只存在本机 `chrome.storage.local`（未加密）；目录句柄存在 IndexedDB。卸载扩展即失去 key 和目录授权。
+- **对照模式**会把抽取后的正文发给 `https://api.deepseek.com`。原文模式不请求该接口。
+- 导出时读取**当前标签页**的整页 HTML（仅 `http`/`https`）。请只导出你自己打开、且愿意交给本地磁盘（以及对照模式下交给 DeepSeek）的页面。
+- 权限：`activeTab` + `scripting`（读当前页）、`storage`、`offscreen`、`debugger`（只打印扩展自己的渲染页）。主机权限仅 `https://api.deepseek.com/*`。
+- 因此不上 Chrome 网上应用店，只通过 GitHub 分发。
+
 ## 开发
 
 ```bash
@@ -66,6 +80,8 @@ npm run build       # 构建扩展到 apps/extension/dist/
 npm run typecheck   # 类型检查
 npm run package     # 构建并打成 releases/ 下的 zip
 ```
+
+需要 Node 20+。
 
 ## 目录结构
 
@@ -83,6 +99,9 @@ apps/extension/
 
 ## 技术说明
 
-- 全部在扩展内完成，**没有后端**；DeepSeek key 存在 `chrome.storage.local`，目录句柄存在 IndexedDB
-- PDF 通过 `chrome.debugger` 的 `Page.printToPDF` 生成（与 Chrome 打印引擎同源），因此需要 `debugger` 权限——这也是本扩展走 GitHub 分发、不上 Chrome 商店的原因
+- PDF 通过 `chrome.debugger` 的 `Page.printToPDF` 生成（与 Chrome 打印引擎同源）
 - 抽取用 Mozilla Readability + Turndown，翻译直接调 DeepSeek OpenAI 兼容接口
+
+## License
+
+[MIT](LICENSE)

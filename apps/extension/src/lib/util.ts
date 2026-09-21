@@ -47,6 +47,7 @@ export function slugifyTitle(title: string): string {
   const cleaned = title
     .normalize("NFKC")
     .replace(/[\/\\?%*:|"<>]/g, " ")
+    .replace(/\.{2,}/g, ".")
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")

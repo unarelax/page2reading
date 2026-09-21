@@ -1,7 +1,13 @@
-import { DEFAULT_SETTINGS, type ExportMode, type ExtensionSettings, type TaskRecord } from "../types.js";
+import { DEFAULT_SETTINGS, type ExtensionSettings, type TaskRecord } from "../types.js";
 
 const TASKS_KEY = "tasks";
 const MAX_TASKS = 50;
+const TASK_TTL_MS = 24 * 60 * 60 * 1000;
+
+function isFresh(task: TaskRecord): boolean {
+  const t = Date.parse(task.createdAt);
+  return !Number.isNaN(t) && Date.now() - t < TASK_TTL_MS;
+}
 
 export async function loadSettings(): Promise<ExtensionSettings> {
   const stored = await chrome.storage.local.get(["apiKey", "model"]);
@@ -18,7 +24,12 @@ export async function saveSettings(settings: ExtensionSettings): Promise<void> {
 export async function listTasks(): Promise<TaskRecord[]> {
   const stored = await chrome.storage.local.get(TASKS_KEY);
   const arr = stored[TASKS_KEY];
-  return Array.isArray(arr) ? (arr as TaskRecord[]) : [];
+  const tasks = Array.isArray(arr) ? (arr as TaskRecord[]) : [];
+  const fresh = tasks.filter(isFresh);
+  if (fresh.length !== tasks.length) {
+    await chrome.storage.local.set({ [TASKS_KEY]: fresh });
+  }
+  return fresh;
 }
 
 export async function upsertTask(task: TaskRecord): Promise<void> {
@@ -26,17 +37,5 @@ export async function upsertTask(task: TaskRecord): Promise<void> {
   const idx = tasks.findIndex((t) => t.id === task.id);
   if (idx >= 0) tasks[idx] = task;
   else tasks.unshift(task);
-  await chrome.storage.local.set({ [TASKS_KEY]: tasks.slice(0, MAX_TASKS) });
-}
-
-export async function findSucceeded(
-  normalizedUrl: string,
-  mode: ExportMode,
-): Promise<TaskRecord | null> {
-  const tasks = await listTasks();
-  return (
-    tasks.find(
-      (t) => t.normalizedUrl === normalizedUrl && t.mode === mode && t.status === "succeeded",
-    ) ?? null
-  );
+  await chrome.storage.local.set({ [TASKS_KEY]: tasks.filter(isFresh).slice(0, MAX_TASKS) });
 }

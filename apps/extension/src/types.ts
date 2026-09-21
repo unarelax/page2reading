@@ -11,7 +11,7 @@ export type TaskStatus =
 
 /** 产物文件名（相对用户所选根目录，如 `20260919/or-slug.md`）。 */
 export interface ArticleFiles {
-  originalMarkdown: string;
+  originalMarkdown: string | null;
   bilingualMarkdown: string | null;
   pdf: string;
 }

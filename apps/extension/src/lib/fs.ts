@@ -93,3 +93,32 @@ export async function writeBinaryFile(relPath: string, data: Uint8Array, type: s
   await writable.write(new Blob([data.buffer as ArrayBuffer], { type }));
   await writable.close();
 }
+
+async function fileExists(relPath: string): Promise<boolean> {
+  const root = await getDirHandle();
+  if (!root) throw new Error("尚未选择保存目录，请先打开扩展设置页");
+  await ensurePermission(root);
+  const parts = relPath.split("/");
+  const name = parts.pop()!;
+  let dir = root;
+  try {
+    for (const part of parts) {
+      dir = await dir.getDirectoryHandle(part);
+    }
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 若 `stem.md` / `stem.pdf` 已存在，则依次尝试 `stem(1)`、`stem(2)`… */
+export async function uniquifyStem(dir: string, stem: string): Promise<string> {
+  for (let n = 0; n < 100; n++) {
+    const name = n === 0 ? stem : `${stem}(${n})`;
+    const md = `${dir}/${name}.md`;
+    const pdf = `${dir}/${name}.pdf`;
+    if (!(await fileExists(md)) && !(await fileExists(pdf))) return name;
+  }
+  throw new Error("同名文件过多，请清理导出目录后再试");
+}

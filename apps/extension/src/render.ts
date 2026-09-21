@@ -1,5 +1,26 @@
 // PDF 渲染页：把 offscreen 生成的 HTML 渲染进本页，等图加载完通知 SW 打印。
 const IMAGE_LOAD_TIMEOUT_MS = 15_000;
+const DROP_TAGS = new Set(["script", "iframe", "object", "embed", "link", "meta", "base", "form"]);
+
+function sanitizeDocument(doc: Document): void {
+  for (const el of [...doc.querySelectorAll("*")]) {
+    if (DROP_TAGS.has(el.tagName.toLowerCase())) {
+      el.remove();
+      continue;
+    }
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim();
+      if (name.startsWith("on") || name === "srcdoc") {
+        el.removeAttribute(attr.name);
+        continue;
+      }
+      if ((name === "href" || name === "src" || name === "xlink:href") && /^\s*javascript:/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  }
+}
 
 async function waitForImages(timeoutMs: number): Promise<string[]> {
   const failed: string[] = [];
@@ -33,10 +54,12 @@ async function main(): Promise<void> {
   const html = stored[taskId]?.html;
   if (!html) throw new Error("渲染内容不存在");
 
-  // 注入整篇 HTML：先 head（样式 + referrer meta），再 body 内容，确保后续图片加载遵循 referrer 策略。
+  // 注入整篇 HTML：消毒后拷贝样式，再写 body 内容。
   const parsed = new DOMParser().parseFromString(html, "text/html");
-  for (const node of Array.from(parsed.head.childNodes)) {
-    document.head.appendChild(node.cloneNode(true));
+  sanitizeDocument(parsed);
+  document.title = parsed.title || "";
+  for (const style of parsed.head.querySelectorAll("style")) {
+    document.head.appendChild(style.cloneNode(true));
   }
   document.body.setAttribute("class", parsed.body.getAttribute("class") ?? "");
   document.body.innerHTML = parsed.body.innerHTML;

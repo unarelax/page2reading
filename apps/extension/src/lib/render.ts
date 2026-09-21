@@ -33,16 +33,36 @@ async function qrSvg(url: string): Promise<string> {
   });
 }
 
+function formatPublished(published: string | null): string {
+  if (!published) return "未知";
+  const m = published.match(/^(\d{4})-(\d{2})/);
+  if (!m) return published;
+  return `${Number(m[1])}年${Number(m[2])}月`;
+}
+
+function formatCollected(collected: string): string {
+  if (!collected) return "未知";
+  const d = new Date(collected);
+  if (Number.isNaN(d.getTime())) return collected;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
 /** 把最终 Markdown（原文或对照）转成用于打印的完整 HTML 文档字符串。 */
 export async function markdownToHtml(
   mdSource: string,
   mode: ExportMode,
 ): Promise<{ html: string; title: string }> {
-  const { body, title, sourceUrl, author, published } = parseFrontmatter(mdSource);
-  const md = new MarkdownIt({ html: true, linkify: true, typographer: false });
+  const { body, title, sourceUrl, author, published, collected } = parseFrontmatter(mdSource);
+  const md = new MarkdownIt({ html: false, linkify: true, typographer: false });
   const html = addLangClasses(md.render(body));
   const metaBits = [author, published].filter(Boolean).join(" · ");
   const qr = sourceUrl ? await qrSvg(sourceUrl) : "";
+  const startmatter = `
+<header class="doc-startmatter">
+  <h1 class="doc-title">${escapeHtml(title || "Untitled")}</h1>
+  <p class="doc-meta">发布日期：${formatPublished(published)}</p>
+  <p class="doc-meta">提取日期：${formatCollected(collected)}</p>
+</header>`;
   const endmatter = `
 <footer class="doc-endmatter">
   <div class="doc-end-row">
@@ -63,6 +83,7 @@ export async function markdownToHtml(
 <style>${css}</style>
 </head>
 <body class="mode-${mode}">
+${startmatter}
 ${html}
 ${endmatter}
 </body>

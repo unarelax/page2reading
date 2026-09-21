@@ -87,6 +87,20 @@ button:disabled {
   flex: none;
 }
 
+.task-action {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: #78716c;
+  font-size: 12px;
+  line-height: 1.8;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .dot {
   width: 7px;
   height: 7px;
@@ -95,22 +109,15 @@ button:disabled {
   background: #c9bda6;
 }
 
-.dot.succeeded {
+.dot.ok {
   background: #3f9d63;
 }
 
-.dot.succeeded_with_warnings {
-  background: #d9a441;
-}
-
-.dot.failed {
+.dot.retry {
   background: #c0392b;
 }
 
-.dot.queued,
-.dot.extracting,
-.dot.translating,
-.dot.rendering {
+.dot.exporting {
   background: #5b8def;
 }
 

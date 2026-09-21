@@ -7,7 +7,7 @@ import { extractArticle } from "./lib/extract.js";
 import { translateBilingual } from "./lib/translate.js";
 import { markdownToHtml } from "./lib/render.js";
 import { allocateArticleFiles, buildFrontmatter } from "./lib/paths.js";
-import { writeBinaryFile, writeTextFile } from "./lib/fs.js";
+import { uniquifyStem, writeBinaryFile, writeTextFile } from "./lib/fs.js";
 
 interface PendingPdf {
   resolve: (v: { bytes: Uint8Array; failedImages: string[] }) => void;
@@ -18,6 +18,14 @@ const port = chrome.runtime.connect({ name: "pipeline" });
 const pendingPdfs = new Map<string, PendingPdf>();
 let runChain: Promise<void> = Promise.resolve();
 
+const ORIGINAL_TIMEOUT_MS = 2 * 60 * 1000;
+const BILINGUAL_TIMEOUT_MS = 4 * 60 * 1000;
+const TIMEOUT_MESSAGE = "导出超时，请保持浏览器开着后重试";
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new Error(TIMEOUT_MESSAGE);
+}
+
 function progress(taskId: string, status: string): void {
   port.postMessage({ type: "progress", taskId, status });
 }
@@ -27,22 +35,42 @@ function requestPdf(
   html: string,
   mode: "original" | "bilingual",
   fileName: string,
+  signal: AbortSignal,
 ): Promise<{ bytes: Uint8Array; failedImages: string[] }> {
   return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      pendingPdfs.delete(taskId);
+      reject(new Error(TIMEOUT_MESSAGE));
+    };
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener("abort", onAbort, { once: true });
     pendingPdfs.set(taskId, {
-      resolve: (v) => resolve(v),
-      reject,
+      resolve: (v) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(v);
+      },
+      reject: (e) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(e);
+      },
     });
     const msg: RequestPdfMessage = { type: "request-pdf", taskId, html, mode, fileName };
     port.postMessage(msg);
   });
 }
 
-async function runPipeline(run: RunMessage): Promise<void> {
+async function runPipeline(run: RunMessage, signal: AbortSignal): Promise<void> {
   const { taskId } = run;
   progress(taskId, "extracting");
   const extracted = extractArticle(run.html, run.url, run.pageTitle ?? undefined);
   const files = allocateArticleFiles(extracted.title, run.collectedAt);
+  const prefix = run.mode === "original" ? "or" : "tr";
+  const stem = await uniquifyStem(files.dir, `${prefix}-${files.slug}`);
+  const markdownPath = `${files.dir}/${stem}.md`;
+  const pdfFileName = `${files.dir}/${stem}.pdf`;
 
   const original = `${buildFrontmatter({
     title: extracted.title,
@@ -51,25 +79,29 @@ async function runPipeline(run: RunMessage): Promise<void> {
     source: run.url,
     collected: run.collectedAt,
   })}${extracted.markdown}\n`;
-  await writeTextFile(files.originalMarkdown, original);
 
   let pdfSource = original;
   let pdfMode: "original" | "bilingual" = "original";
-  let pdfFileName = files.originalPdf;
   let bilingualMarkdown: string | null = null;
 
-  if (run.mode === "bilingual") {
+  throwIfAborted(signal);
+  if (run.mode === "original") {
+    await writeTextFile(markdownPath, original);
+  } else {
     progress(taskId, "translating");
-    const bilingual = await translateBilingual(original, run.settings);
-    await writeTextFile(files.bilingualMarkdown, bilingual);
-    bilingualMarkdown = files.bilingualMarkdown;
+    const bilingual = await translateBilingual(original, run.settings, signal);
+    throwIfAborted(signal);
+    await writeTextFile(markdownPath, bilingual);
+    bilingualMarkdown = markdownPath;
     pdfSource = bilingual;
     pdfMode = "bilingual";
-    pdfFileName = files.bilingualPdf;
   }
 
+  throwIfAborted(signal);
   const { html } = await markdownToHtml(pdfSource, pdfMode);
-  const pdf = await requestPdf(taskId, html, pdfMode, pdfFileName);
+  throwIfAborted(signal);
+  const pdf = await requestPdf(taskId, html, pdfMode, pdfFileName, signal);
+  throwIfAborted(signal);
   await writeBinaryFile(pdfFileName, pdf.bytes, "application/pdf");
 
   const warnings = pdf.failedImages.length
@@ -83,7 +115,7 @@ async function runPipeline(run: RunMessage): Promise<void> {
     status,
     warnings,
     files: {
-      originalMarkdown: files.originalMarkdown,
+      originalMarkdown: run.mode === "original" ? markdownPath : null,
       bilingualMarkdown,
       pdf: pdfFileName,
     },
@@ -93,12 +125,18 @@ async function runPipeline(run: RunMessage): Promise<void> {
 port.onMessage.addListener((msg: unknown) => {
   const m = msg as { type?: string; taskId?: string };
   if (m?.type === "run") {
+    const run = m as unknown as RunMessage;
     runChain = runChain
-      .then(() => runPipeline(m as unknown as RunMessage))
+      .then(() => {
+        const controller = new AbortController();
+        const ms = run.mode === "bilingual" ? BILINGUAL_TIMEOUT_MS : ORIGINAL_TIMEOUT_MS;
+        const timer = setTimeout(() => controller.abort(), ms);
+        return runPipeline(run, controller.signal).finally(() => clearTimeout(timer));
+      })
       .catch((err) => {
         port.postMessage({
           type: "failed",
-          taskId: m.taskId,
+          taskId: run.taskId,
           error: err instanceof Error ? err.message : String(err),
         });
       });

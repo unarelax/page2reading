@@ -10,7 +10,7 @@ import {
   type TaskRecord,
 } from "./types.js";
 import { normalizeUrl, nowIso } from "./lib/util.js";
-import { findSucceeded, listTasks, loadSettings, upsertTask } from "./lib/storage.js";
+import { listTasks, loadSettings, upsertTask } from "./lib/storage.js";
 import { printPageToPdf } from "./lib/pdf.js";
 
 // ---- offscreen 管道状态 ----
@@ -61,16 +61,6 @@ async function handleSubmit(msg: SubmitMessage) {
   }
 
   const normalizedUrl = normalizeUrl(msg.url);
-  const dup = await findSucceeded(normalizedUrl, msg.mode);
-  if (dup) {
-    return {
-      taskId: dup.id,
-      status: "succeeded",
-      duplicate: true,
-      message: "相同链接和模式已处理过，如需重做请删除历史记录后重试",
-    };
-  }
-
   const taskId = crypto.randomUUID();
   const collectedAt = nowIso();
   await upsertTask({
