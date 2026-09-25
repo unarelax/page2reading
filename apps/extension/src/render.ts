@@ -48,11 +48,13 @@ async function waitForImages(timeoutMs: number): Promise<string[]> {
 
 async function main(): Promise<void> {
   const taskId = new URLSearchParams(location.search).get("task");
+  console.log("[p2r][render] main 开始，taskId=", taskId);
   if (!taskId) throw new Error("缺少 task 参数");
 
   const stored = (await chrome.storage.session.get(taskId)) as { [k: string]: { html?: string } };
   const html = stored[taskId]?.html;
   if (!html) throw new Error("渲染内容不存在");
+  console.log("[p2r][render] 已从 session 取到 html，长度=", html.length);
 
   // 注入整篇 HTML：消毒后拷贝样式，再写 body 内容。
   const parsed = new DOMParser().parseFromString(html, "text/html");
@@ -65,11 +67,13 @@ async function main(): Promise<void> {
   document.body.innerHTML = parsed.body.innerHTML;
 
   const failedImages = await waitForImages(IMAGE_LOAD_TIMEOUT_MS);
+  console.log("[p2r][render] 图片等待完成，failedImages=", failedImages.length, "，发送 render-ready");
   await chrome.runtime.sendMessage({ type: "render-ready", taskId, failedImages });
 }
 
 main().catch((err: Error) => {
   const taskId = new URLSearchParams(location.search).get("task");
+  console.log("[p2r][render] main 异常，发送 render-failed:", err.message);
   void chrome.runtime.sendMessage({
     type: "render-failed",
     taskId,

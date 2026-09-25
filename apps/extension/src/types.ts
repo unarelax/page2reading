@@ -28,6 +28,15 @@ export interface TaskRecord {
   files: ArticleFiles | null;
   createdAt: string;
   finishedAt: string | null;
+  /** 进行中的补充说明，如翻译分段 `3/22`。 */
+  progressNote?: string | null;
+}
+
+export interface ProgressMessage {
+  type: "progress";
+  taskId: string;
+  status: TaskStatus;
+  note?: string;
 }
 
 export interface ExtensionSettings {
@@ -72,10 +81,23 @@ export interface RequestPdfMessage {
   fileName: string;
 }
 
+export interface PdfChunkMessage {
+  type: "pdf-chunk";
+  taskId: string;
+  /** base64。扩展端口不能可靠传递 Uint8Array，二进制会被弄成空对象。 */
+  data: string;
+}
+
+export interface PdfChunkAckMessage {
+  type: "pdf-chunk-ack";
+  taskId: string;
+  error?: string;
+}
+
 export interface PdfResultMessage {
   type: "pdf-result";
   taskId: string;
-  base64: string;
+  byteLength: number;
   failedImages: string[];
 }
 

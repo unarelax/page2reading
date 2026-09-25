@@ -94,6 +94,44 @@ export async function writeBinaryFile(relPath: string, data: Uint8Array, type: s
   await writable.close();
 }
 
+/** 分块写入。close 才落盘；失败时删掉已经建出的空文件。 */
+export async function openBinaryWriter(relPath: string): Promise<{
+  write: (data: Uint8Array) => Promise<void>;
+  close: () => Promise<number>;
+  abort: () => Promise<void>;
+}> {
+  const { dir, name } = await resolveFile(relPath);
+  const handle = await dir.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  let settled = false;
+  return {
+    async write(data: Uint8Array) {
+      if (!data.byteLength) throw new Error("PDF 分块为空");
+      const copy = new ArrayBuffer(data.byteLength);
+      new Uint8Array(copy).set(data);
+      // 直接 write(ArrayBuffer) 会被当成 WriteParams，结果是 0 字节。
+      await writable.write(new Blob([copy]));
+    },
+    async close() {
+      if (settled) return 0;
+      settled = true;
+      await writable.close();
+      const size = (await handle.getFile()).size;
+      if (size <= 0) {
+        await dir.removeEntry(name).catch(() => undefined);
+        throw new Error("PDF 写入后仍是空文件");
+      }
+      return size;
+    },
+    async abort() {
+      if (settled) return;
+      settled = true;
+      await writable.abort().catch(() => undefined);
+      await dir.removeEntry(name).catch(() => undefined);
+    },
+  };
+}
+
 async function fileExists(relPath: string): Promise<boolean> {
   const root = await getDirHandle();
   if (!root) throw new Error("尚未选择保存目录，请先打开扩展设置页");

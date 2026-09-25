@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Page2Reading 问题记录</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ink: #1c1915;
+    --muted: #5c564c;
+    --line: #e4ddd2;
+    --paper: #faf7f2;
+    --card: #fff;
+    --mark: #8a4b2f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.7 "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", serif;
+  }
+  main {
+    max-width: 42rem;
+    margin: 0 auto;
+    padding: 3.5rem 1.4rem 5rem;
+  }
+  h1 {
+    font-size: 2rem;
+    line-height: 1.25;
+    font-weight: 650;
+    margin: 0 0 0.6rem;
+  }
+  h2 {
+    font-size: 1.25rem;
+    line-height: 1.35;
+    margin: 2.4rem 0 0.7rem;
+  }
+  p { margin: 0.55rem 0; }
+  .lead { color: var(--muted); }
+  time, .meta { color: var(--muted); font-size: 0.92rem; }
+  article {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.15rem 1.1rem;
+    margin: 0.9rem 0;
+  }
+  article h3 {
+    margin: 0 0 0.35rem;
+    font-size: 1.05rem;
+    line-height: 1.4;
+  }
+  article p { margin: 0.35rem 0; }
+  strong { font-weight: 650; }
+  code {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.86em;
+    background: #f3eee6;
+    padding: 0.05em 0.3em;
+    border-radius: 4px;
+  }
+  ol { margin: 0.4rem 0 0.4rem 1.2rem; padding: 0; }
+  li { margin: 0.25rem 0; }
+  ul.plain { margin: 0.3rem 0 0; padding-left: 1.15rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Page2Reading 问题记录</h1>
+  <p class="lead">导出链路上遇到的坑，和已经落到代码里的处理。新问题补在最上面。改完扩展要在 <code>chrome://extensions</code> 重新加载，浏览器跑的是 <code>apps/extension/dist/</code>。</p>
+  <p class="meta">最近更新 <time datetime="2026-09-24">2026-09-24</time></p>
+
+  <h2>导出实际在做什么</h2>
+  <p>Markdown 和 PDF 不是同一步。offscreen 文档先抽取正文（对照模式再分段翻译），把 <code>.md</code> 写进选定目录，然后才排版 PDF。</p>
+  <ol>
+    <li>markdown-it 把正文变成带 <code>style.css</code> 的 HTML。</li>
+    <li>HTML 放进 <code>chrome.storage.session</code>，打开一个不激活的隐藏标签页画出来，并等远程图片。</li>
+    <li>Service Worker 用 <code>chrome.debugger</code> 只附在这个隐藏页上，调用 <code>Page.printToPDF</code>。</li>
+    <li>PDF 按块解码，offscreen 文档用目录句柄逐块写入 <code>.pdf</code>。写完一块，再读下一块。</li>
+  </ol>
+  <p>扩展没有后台，也不能起本地进程，所以没有「把 md 交给一个库、拿回 pdf」这一步。版式靠 Chrome 的打印引擎，才能用系统里的中文字体、A4 和现有样式。</p>
+
+  <h2>已处理</h2>
+
+  <article>
+    <h3>PDF 生成出来是 0KB</h3>
+    <p><time datetime="2026-09-24">2026-09-24</time></p>
+    <p><strong>现象。</strong>导出跑完，目录里有 PDF，大小是 0 字节。</p>
+    <p><strong>原因。</strong>扩展端口不能可靠传递 <code>Uint8Array</code>，二进制块到 offscreen 后不再是字节数组，<code>byteLength</code> 是空的。写入流因此写进 0 字节，又因为空长度不是数字 <code>0</code>，空文件检查被绕过，文件仍被正常关闭。<code>getFileHandle</code> 一创建就会在磁盘上留下这个空文件。另外，把 <code>ArrayBuffer</code> 直接交给 <code>writable.write</code> 时，浏览器会把它当成写入参数对象，同样写不出内容。</p>
+    <p><strong>处理。</strong>每一块先编成 base64 字符串再传。写入用 <code>Blob</code>。关闭后读一次真实文件大小，仍是 0 就删掉并报错。中途失败也删掉这个占位文件。</p>
+  </article>
+
+  <article>
+    <h3>长文 PDF 整包传回，导出失败，浏览器发沉</h3>
+    <p><time datetime="2026-09-24">2026-09-24</time></p>
+    <p><strong>现象。</strong>篇幅很长的 Markdown 很快就在目录里，PDF 一直没有。导出过程中整个 Chrome 变重。</p>
+    <p><strong>原因。</strong>打印结果先被拼成一整段 base64，经扩展端口再拷一份，offscreen 里再用 <code>atob</code> 解成字节。同一份文件在内存里同时有两三份。更早一版用 <code>ReturnAsBase64</code>，单条调试器消息装不下，<code>sendCommand</code> 的回调永远不回来，任务像卡死。</p>
+    <p><strong>处理。</strong>调试器侧改为 <code>ReturnAsStream</code>，按大约 2MB 一块读取。每块解码后发给 offscreen，写入确认之后才读下一块。失败时 <code>abort</code> 丢掉临时文件，不留下半份 PDF。Service Worker 不能对用户选定的目录调用 <code>createWritable</code>（会报当前上下文不允许），所以文件仍由 offscreen 文档写，它本来就拿着 IndexedDB 里的目录句柄。</p>
+    <p>打印那几秒到几十秒的 CPU 还在，那是排版和嵌图。隐藏页关掉后释放。内存里不再同时躺着整份 PDF。</p>
+  </article>
+
+  <article>
+    <h3>按偏移读 PDF 流会跳字节；空块被当成结束</h3>
+    <p><time datetime="2026-09-24">2026-09-24</time></p>
+    <p><strong>现象。</strong>流式读取若自己累加 <code>offset</code>，Chrome 某次返回的字节数少于请求的大小时，下一次会跳过中间一段，PDF 损坏。空数据且还没到结尾时如果直接停，文件会被截断。</p>
+    <p><strong>处理。</strong><code>IO.read</code> 不再传 offset，顺着流往下读。结束前遇到空数据就报错，不把残缺内容当成成功。base64 可能在 4 字符边界被切开，不足 4 字符的尾巴留给下一块，最后一块再补 <code>=</code>。</p>
+  </article>
+
+  <article>
+    <h3>分块写入失败后，任务既不成功也不失败</h3>
+    <p><time datetime="2026-09-24">2026-09-24</time></p>
+    <p><strong>现象。</strong>某一块写入失败后，错误处理挂在已经拒绝的 Promise 的 <code>then</code> 上，回调不会跑。临时文件不丢弃，导出 Promise 也不结束。</p>
+    <p><strong>处理。</strong>失败先回一条带错误的确认，让 Service Worker 停下来。随后的失败收尾用 <code>catch</code> 再 <code>abort</code> 写流，并把任务标成失败。确认回调里不再把错误抛回去，避免这条链变成未处理拒绝。</p>
+  </article>
+
+  <article>
+    <h3><code>Uint8Array</code> 不能直接交给文件写入流</h3>
+    <p><time datetime="2026-09-24">2026-09-24</time></p>
+    <p><strong>现象。</strong>类型检查报 <code>Uint8Array&lt;ArrayBufferLike&gt;</code> 不能赋给 <code>FileSystemWritableFileStream.write</code>。</p>
+    <p><strong>处理。</strong>每块先拷进一块新的 <code>ArrayBuffer</code>，再包成 <code>Blob</code> 写入。不能把 <code>ArrayBuffer</code> 直接交给 <code>write</code>，见上面的「0KB」。</p>
+  </article>
+
+  <article>
+    <h3>长文对照导出成功，文件里几乎只有中文</h3>
+    <p><time datetime="2026-09-22">2026-09-22</time></p>
+    <p><strong>现象。</strong><code>tr-How-to-Get-Rich.md</code> 和对应 PDF 都生成了，但正文几乎全是中文。短文以前可以中英对照。</p>
+    <p><strong>原因。</strong>短文整篇一次送进模型，提示词要求段落级对照。长文拆成二十多段之后，每段的提示写成「只翻译这一段正文」。模型只交回中文，英文没有从原文拼回去。校验也不看原文还在不在，所以纯中文译文仍标成成功。</p>
+    <p><strong>处理。</strong>英文段落由程序从原文留下，模型只出对应中文，再按「一段英文、一段中文」交错写入 Markdown 和 PDF。已经落盘的纯中文文件不会自动变对照，需要重新导出。</p>
+  </article>
+
+  <article>
+    <h3>长文对照被 6 分钟总超时掐掉，弹窗却一直「导出中」</h3>
+    <p><time datetime="2026-09-22">2026-09-22</time></p>
+    <p><strong>现象。</strong>浏览器开着，Service Worker 也没被回收，日志里没有 <code>request-pdf</code>。任务在翻译阶段失败，文案像是在说浏览器被关掉。弹窗顶栏不改成真正的错误。</p>
+    <p><strong>原因。</strong>像 Naval《How to Get Rich》这种约 50 个小节的文章，会拆成二十多段逐段调 DeepSeek，墙钟经常超过 6 分钟。控制台还会把两条相同的 <code>progress</code> 折成一行，看起来像只走了一步。</p>
+    <p><strong>处理。</strong>取消 6 分钟总超时。连续 5 分钟完全没有进度才中止；整篇硬上限 90 分钟。每开始一次请求、每译完一段都刷新进度，弹窗显示「翻译中 3/26」。结束后写出失败原因。超长文不再做整篇重译，那一次额外请求本身就容易再卡死。</p>
+  </article>
+
+  <article>
+    <h3>Service Worker 重启后，旧的 offscreen 端口把队列卡死</h3>
+    <p><time datetime="2026-09-22">2026-09-22</time></p>
+    <p><strong>现象。</strong>扩展后台被回收再起来，内存里的管道状态没了，但旧的 offscreen 文档还在。新任务投递不进去，或者 <code>render-ready</code> 到达时 <code>pendingPdf</code> 已经是空的，这条消息被丢掉，任务停在「生成 PDF」，直到无进度超时。</p>
+    <p><strong>处理。</strong>每个任务开始前关掉并新建 offscreen 文档，不复用重启前留下的端口。日志里若出现「pendingPdf 为空或 taskId 不匹配」，就是隐藏页准备好了、但后台已经不记得这个任务。</p>
+  </article>
+
+  <article>
+    <h3>保存目录的权限弹窗不能从后台弹出</h3>
+    <p><strong>现象。</strong>上次授权失效后，导出直接失败，后台里调用 <code>requestPermission</code> 也不会出现系统对话框。</p>
+    <p><strong>处理。</strong>权限不是 <code>granted</code> 时直接报错，提示打开扩展设置页点「重新授权」或重新选目录。选目录必须发生在设置页的用户点击里。</p>
+  </article>
+
+  <h2>还在，但不要当成导出坏了</h2>
+  <ul class="plain">
+    <li>Chrome 会提示「扩展正在调试此浏览器」。调试器只附在自己打开的隐藏渲染页上，不附在正在读的文章页。</li>
+    <li>Markdown 里的图片只是 URL。PDF 必须在隐藏页里把图下载下来嵌进去，总等待大约 15 秒。没加载上的图记成「完成（缺图）」，正文照样导出。</li>
+    <li>目录里已经有 <code>.md</code>、还没有 <code>.pdf</code>，表示正文写完了，打印还在进行或打印失败。看弹窗是「生成 PDF」还是具体错误。</li>
+    <li><code>Page.printToPDF</code> 单次命令上限 180 秒，每一块落盘的确认上限 60 秒。超过就失败，可以重试。</li>
+  </ul>
+</main>
+</body>
+</html>

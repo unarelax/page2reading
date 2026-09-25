@@ -8,6 +8,9 @@ const originalBtn = document.getElementById("original") as HTMLButtonElement;
 const bilingualBtn = document.getElementById("bilingual") as HTMLButtonElement;
 const tasksEl = document.getElementById("tasks")!;
 
+let followTaskId: string | null = null;
+let statusLocked = false;
+
 function setStatus(text: string) {
   statusEl.textContent = text;
 }
@@ -24,6 +27,24 @@ function taskKind(status: TaskStatus): "exporting" | "ok" | "retry" {
   if (status === "succeeded" || status === "succeeded_with_warnings") return "ok";
   if (status === "failed") return "retry";
   return "exporting";
+}
+
+function liveLabel(t: TaskRecord): string {
+  switch (t.status) {
+    case "queued":
+      return "排队中";
+    case "extracting":
+      return "提取正文";
+    case "translating":
+      return t.progressNote ? `翻译中 ${t.progressNote}` : "翻译中";
+    case "rendering":
+      return "生成 PDF";
+    case "succeeded":
+    case "succeeded_with_warnings":
+      return "成功";
+    case "failed":
+      return t.error || "失败";
+  }
 }
 
 async function currentTab() {
@@ -50,6 +71,7 @@ async function capture(tabId: number) {
 async function submit(mode: Mode) {
   originalBtn.disabled = true;
   bilingualBtn.disabled = true;
+  statusLocked = false;
   try {
     const tab = await currentTab();
     const page = await capture(tab.id!);
@@ -61,14 +83,33 @@ async function submit(mode: Mode) {
       html: page.html,
     } satisfies SubmitMessage)) as { error?: string; taskId?: string };
     if (res?.error) throw new Error(res.error);
-    setStatus("导出中，需保持浏览器开着，保持网络连接");
+    followTaskId = res.taskId ?? null;
+    setStatus("已加入队列，长文对照可能需要十几分钟");
     await refreshTasks();
   } catch (err) {
+    statusLocked = true;
+    followTaskId = null;
     setStatus(err instanceof Error ? err.message : String(err));
   } finally {
     originalBtn.disabled = false;
     bilingualBtn.disabled = false;
   }
+}
+
+function syncBanner(tasks: TaskRecord[]): void {
+  if (statusLocked) return;
+  const inflight = tasks.find((t) => taskKind(t.status) === "exporting");
+  if (inflight) {
+    followTaskId = inflight.id;
+    setStatus(`${liveLabel(inflight)}，请保持网络连接`);
+    return;
+  }
+  if (!followTaskId) return;
+  const t = tasks.find((x) => x.id === followTaskId);
+  followTaskId = null;
+  if (!t) return;
+  if (t.status === "failed") setStatus(t.error || "导出失败");
+  else setStatus(t.warnings?.length ? `已完成（${t.warnings[0]}）` : "导出完成");
 }
 
 async function refreshTasks() {
@@ -77,16 +118,18 @@ async function refreshTasks() {
     tasksEl.innerHTML = "";
     return;
   }
+  syncBanner(tasks);
   tasksEl.innerHTML = tasks
     .slice(0, 8)
     .map((t) => {
       const title = t.pageTitle || t.url;
       const kind = taskKind(t.status);
+      const tooltip = t.error ? `${t.url}\n${t.error}` : t.url;
       const action =
         kind === "retry"
           ? `<button type="button" class="task-action" data-url="${escapeHtml(t.url)}">重试</button>`
-          : `<span class="task-status">${kind === "ok" ? "成功" : "导出中"}</span>`;
-      return `<div class="task" title="${escapeHtml(t.url)}"><span class="dot ${kind}"></span><span class="task-title">${escapeHtml(title)}</span>${action}</div>`;
+          : `<span class="task-status">${kind === "ok" ? "成功" : liveLabel(t)}</span>`;
+      return `<div class="task" title="${escapeHtml(tooltip)}"><span class="dot ${kind}"></span><span class="task-title">${escapeHtml(title)}</span>${action}</div>`;
     })
     .join("");
 }
@@ -95,7 +138,10 @@ currentTab()
   .then((tab) => {
     titleEl.textContent = tab.title || tab.url || "当前页面";
   })
-  .catch((err: Error) => setStatus(err.message));
+  .catch((err: Error) => {
+    statusLocked = true;
+    setStatus(err.message);
+  });
 
 refreshTasks().catch(() => undefined);
 setInterval(() => {

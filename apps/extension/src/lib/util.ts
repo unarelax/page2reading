@@ -58,3 +58,14 @@ export function slugifyTitle(title: string): string {
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** 连续无进度超过此时长才中止；单次 DeepSeek / printToPDF 都可能要 1～3 分钟。 */
+export const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+/** 防死循环的总上限。长文对照按段翻译，整体经常超过 6 分钟。 */
+export const PIPELINE_HARD_TIMEOUT_MS = 90 * 60 * 1000;
+export const TIMEOUT_MESSAGE = "导出超时：长时间没有进度，请稍后重试";
+export const HARD_TIMEOUT_MESSAGE = "导出超时：整篇处理超过 90 分钟仍未完成";
+
+export function abortMessage(signal: AbortSignal): string {
+  return typeof signal.reason === "string" && signal.reason ? signal.reason : TIMEOUT_MESSAGE;
+}

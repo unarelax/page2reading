@@ -57,6 +57,8 @@ button:disabled {
   min-height: 2.4em;
   font-size: 12px;
   color: #44403c;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .tasks {
