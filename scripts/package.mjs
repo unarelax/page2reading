@@ -12,7 +12,8 @@ const version = manifest.version;
 
 const releasesDir = join(root, "releases");
 mkdirSync(releasesDir, { recursive: true });
-const outPath = join(releasesDir, `Page2Reading-v${version}.zip`);
+// 固定文件名，README 里的 latest/download 链接不用随版本改。
+const outPath = join(releasesDir, "Page2Reading.zip");
 
 const output = createWriteStream(outPath);
 const archive = archiver("zip", { zlib: { level: 9 } });
@@ -25,4 +26,4 @@ archive.pipe(output);
 archive.directory(distDir, false);
 await archive.finalize();
 
-console.log(`已打包: ${outPath}`);
+console.log(`已打包: ${outPath}（扩展版本 ${version}）`);

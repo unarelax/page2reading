@@ -59,12 +59,18 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** 连续无进度超过此时长才中止；单次 DeepSeek / printToPDF 都可能要 1～3 分钟。 */
-export const PIPELINE_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-/** 防死循环的总上限。长文对照按段翻译，整体经常超过 6 分钟。 */
-export const PIPELINE_HARD_TIMEOUT_MS = 90 * 60 * 1000;
+/** 单次 DeepSeek 请求多久没返回就放弃这一次。 */
+export const REQUEST_TIMEOUT_MS = 45_000;
+/** 对照翻译整体上限。超时此时还没有 Markdown。 */
+export const TRANSLATE_MAX_MS = 12 * 60 * 1000;
+/** 连续没有任何完成的进度（译完一组、写出文件、PDF 分块）就停。要大于 printToPDF 的 180 秒。 */
+export const PIPELINE_IDLE_TIMEOUT_MS = 4 * 60 * 1000;
+/** 整篇任务硬上限：翻译 12 分钟 + 短文 PDF。 */
+export const PIPELINE_HARD_TIMEOUT_MS = 18 * 60 * 1000;
+/** 新建 offscreen 后多久还没连上管道，就放弃这一篇，避免队列永久占着。 */
+export const OFFSCREEN_CONNECT_TIMEOUT_MS = 15_000;
 export const TIMEOUT_MESSAGE = "导出超时：长时间没有进度，请稍后重试";
-export const HARD_TIMEOUT_MESSAGE = "导出超时：整篇处理超过 90 分钟仍未完成";
+export const HARD_TIMEOUT_MESSAGE = "导出超时：整篇处理超过 18 分钟仍未完成";
 
 export function abortMessage(signal: AbortSignal): string {
   return typeof signal.reason === "string" && signal.reason ? signal.reason : TIMEOUT_MESSAGE;

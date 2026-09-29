@@ -1,4 +1,5 @@
 import type {
+  CancelPdfMessage,
   PdfChunkMessage,
   PdfResultMessage,
   RequestPdfMessage,
@@ -6,10 +7,11 @@ import type {
 } from "./types.js";
 import { extractArticle } from "./lib/extract.js";
 import { translateBilingual } from "./lib/translate.js";
-import { markdownToHtml } from "./lib/render.js";
+import { markdownToHtml, skipPdfReason } from "./lib/render.js";
 import { allocateArticleFiles, buildFrontmatter } from "./lib/paths.js";
 import { base64ToBytes } from "./lib/base64-chunks.js";
 import { openBinaryWriter, uniquifyStem, writeTextFile } from "./lib/fs.js";
+import { INTERRUPTED_MESSAGE } from "./lib/task-status.js";
 import {
   abortMessage,
   HARD_TIMEOUT_MESSAGE,
@@ -30,10 +32,30 @@ interface PendingPdf {
 
 const port = chrome.runtime.connect({ name: "pipeline" });
 console.log("[p2r][offscreen] pipeline 端口已连接");
-port.onDisconnect.addListener(() => console.log("[p2r][offscreen] pipeline 端口已断开"));
+
+function safePost(msg: object): void {
+  try {
+    port.postMessage(msg);
+  } catch (err) {
+    console.log("[p2r][offscreen] 投递失败", err instanceof Error ? err.message : err);
+  }
+}
+
 const pendingPdfs = new Map<string, PendingPdf>();
 let runChain: Promise<void> = Promise.resolve();
 let activityBump: (() => void) | null = null;
+let activeController: AbortController | null = null;
+
+port.onDisconnect.addListener(() => {
+  console.log("[p2r][offscreen] pipeline 端口已断开");
+  for (const [taskId, pending] of [...pendingPdfs]) {
+    pending.cancelled = true;
+    pendingPdfs.delete(taskId);
+    void pending.writer?.abort().catch(() => undefined);
+    pending.reject(new Error(INTERRUPTED_MESSAGE));
+  }
+  activeController?.abort(INTERRUPTED_MESSAGE);
+});
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new Error(abortMessage(signal));
@@ -49,10 +71,10 @@ function startWatchdog(controller: AbortController): { bump: () => void; stop: (
     if (controller.signal.aborted) return;
     const now = Date.now();
     if (now - startedAt >= PIPELINE_HARD_TIMEOUT_MS) {
-      console.log("[p2r][offscreen] 90 分钟总上限，触发 abort");
+      console.log("[p2r][offscreen] 18 分钟总上限，触发 abort");
       controller.abort(HARD_TIMEOUT_MESSAGE);
     } else if (now - lastActivity >= PIPELINE_IDLE_TIMEOUT_MS) {
-      console.log("[p2r][offscreen] 5 分钟无进度，触发 abort");
+      console.log("[p2r][offscreen] 4 分钟无进度，触发 abort");
       controller.abort(TIMEOUT_MESSAGE);
     }
   }, 2000);
@@ -72,6 +94,7 @@ function requestPdf(
       if (pending) pending.cancelled = true;
       pendingPdfs.delete(taskId);
       void pending?.writer?.abort().catch(() => undefined);
+      safePost({ type: "cancel-pdf", taskId } satisfies CancelPdfMessage);
       reject(new Error(abortMessage(signal)));
     };
     if (signal.aborted) {
@@ -96,16 +119,45 @@ function requestPdf(
     });
     const msg: RequestPdfMessage = { type: "request-pdf", taskId, html, mode, fileName };
     console.log("[p2r][offscreen] 发送 request-pdf，taskId=", taskId);
-    port.postMessage(msg);
+    try {
+      port.postMessage(msg);
+    } catch (err) {
+      pendingPdfs.delete(taskId);
+      signal.removeEventListener("abort", onAbort);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
+
+function finishOk(
+  taskId: string,
+  run: RunMessage,
+  markdownPath: string,
+  bilingualMarkdown: string | null,
+  pdfPath: string | null,
+  warnings: string[],
+): void {
+  const status = warnings.length ? "succeeded_with_warnings" : "succeeded";
+  console.log("[p2r][offscreen] 发送 done，status=", status, "warnings=", warnings.length);
+  safePost({
+    type: "done",
+    taskId,
+    status,
+    warnings,
+    files: {
+      originalMarkdown: run.mode === "original" ? markdownPath : null,
+      bilingualMarkdown,
+      pdf: pdfPath,
+    },
   });
 }
 
 async function runPipeline(run: RunMessage, signal: AbortSignal, bump: () => void): Promise<void> {
   const { taskId } = run;
-  const progress = (status: string, note?: string) => {
-    bump();
+  const progress = (status: string, note?: string, bumpIdle = true) => {
+    if (bumpIdle) bump();
     console.log("[p2r][offscreen] progress ->", status, note ?? "");
-    port.postMessage({ type: "progress", taskId, status, note });
+    safePost({ type: "progress", taskId, status, note });
   };
 
   console.log("[p2r][offscreen] runPipeline 开始，taskId=", taskId, "mode=", run.mode);
@@ -128,8 +180,8 @@ async function runPipeline(run: RunMessage, signal: AbortSignal, bump: () => voi
     collected: run.collectedAt,
   })}${extracted.markdown}\n`;
 
-  let pdfSource = original;
-  let pdfMode: "original" | "bilingual" = "original";
+  let source = original;
+  let mode: "original" | "bilingual" = "original";
   let bilingualMarkdown: string | null = null;
 
   throwIfAborted(signal);
@@ -143,8 +195,8 @@ async function runPipeline(run: RunMessage, signal: AbortSignal, bump: () => voi
       original,
       run.settings,
       signal,
-      (done, total) => {
-        progress("translating", `${done}/${total}`);
+      (done, total, detail) => {
+        progress("translating", detail ?? `${done}/${total}`, false);
       },
       bump,
     );
@@ -154,38 +206,35 @@ async function runPipeline(run: RunMessage, signal: AbortSignal, bump: () => voi
     bump();
     console.log("[p2r][offscreen] md 已写入:", markdownPath);
     bilingualMarkdown = markdownPath;
-    pdfSource = bilingual;
-    pdfMode = "bilingual";
+    source = bilingual;
+    mode = "bilingual";
   }
 
-  throwIfAborted(signal);
+  const skip = skipPdfReason(original);
+  if (skip) {
+    console.log("[p2r][offscreen] 跳过 PDF:", skip);
+    finishOk(taskId, run, markdownPath, bilingualMarkdown, null, [skip]);
+    return;
+  }
+
   progress("rendering");
   console.log("[p2r][offscreen] 开始 markdownToHtml");
-  const { html } = await markdownToHtml(pdfSource, pdfMode);
+  const { html } = await markdownToHtml(source, mode);
   bump();
-  console.log("[p2r][offscreen] markdownToHtml 完成，开始请求 PDF");
-  throwIfAborted(signal);
-  const pdf = await requestPdf(taskId, html, pdfMode, pdfFileName, signal);
-  bump();
-  console.log("[p2r][offscreen] PDF 已写入:", pdfFileName, "bytes=", pdf.byteLength, "failedImages=", pdf.failedImages.length);
-
-  const warnings = pdf.failedImages.length
-    ? [`PDF 图片加载失败 ${pdf.failedImages.length} 张：${pdf.failedImages.slice(0, 5).join(" ")}`]
-    : [];
-  const status = warnings.length ? "succeeded_with_warnings" : "succeeded";
-
-  console.log("[p2r][offscreen] 发送 done，status=", status);
-  port.postMessage({
-    type: "done",
-    taskId,
-    status,
-    warnings,
-    files: {
-      originalMarkdown: run.mode === "original" ? markdownPath : null,
-      bilingualMarkdown,
-      pdf: pdfFileName,
-    },
-  });
+  try {
+    const pdf = await requestPdf(taskId, html, mode, pdfFileName, signal);
+    bump();
+    console.log("[p2r][offscreen] PDF 已写入:", pdfFileName, "bytes=", pdf.byteLength);
+    const warnings = pdf.failedImages.length
+      ? [`PDF 图片加载失败 ${pdf.failedImages.length} 张`]
+      : [];
+    finishOk(taskId, run, markdownPath, bilingualMarkdown, pdfFileName, warnings);
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (error === INTERRUPTED_MESSAGE) throw err instanceof Error ? err : new Error(error);
+    console.log("[p2r][offscreen] PDF 失败，Markdown 仍算成功:", error);
+    finishOk(taskId, run, markdownPath, bilingualMarkdown, null, [`PDF 未生成：${error}`]);
+  }
 }
 
 port.onMessage.addListener((msg: unknown) => {
@@ -198,14 +247,16 @@ port.onMessage.addListener((msg: unknown) => {
         const controller = new AbortController();
         const { bump, stop } = startWatchdog(controller);
         activityBump = bump;
+        activeController = controller;
         return runPipeline(run, controller.signal, bump).finally(() => {
+          if (activeController === controller) activeController = null;
           activityBump = null;
           stop();
         });
       })
       .catch((err) => {
         console.log("[p2r][offscreen] runPipeline 异常，发送 failed:", err instanceof Error ? err.message : err);
-        port.postMessage({
+        safePost({
           type: "failed",
           taskId: run.taskId,
           error: err instanceof Error ? err.message : String(err),
@@ -218,12 +269,12 @@ port.onMessage.addListener((msg: unknown) => {
     const p = pendingPdfs.get(taskId);
     activityBump?.();
     if (!p || p.cancelled) {
-      port.postMessage({ type: "pdf-chunk-ack", taskId, error: "导出已中断" });
+      safePost({ type: "pdf-chunk-ack", taskId, error: "导出已中断" });
       return;
     }
     const data = (m as unknown as PdfChunkMessage).data;
     if (typeof data !== "string" || !data) {
-      port.postMessage({ type: "pdf-chunk-ack", taskId, error: "PDF 分块无效" });
+      safePost({ type: "pdf-chunk-ack", taskId, error: "PDF 分块无效" });
       return;
     }
     const bytes = base64ToBytes(data);
@@ -235,11 +286,11 @@ port.onMessage.addListener((msg: unknown) => {
       p.bytesWritten += bytes.byteLength;
     }).then(
       () => {
-        port.postMessage({ type: "pdf-chunk-ack", taskId });
+        safePost({ type: "pdf-chunk-ack", taskId });
       },
       (err: unknown) => {
         const error = err instanceof Error ? err.message : String(err);
-        port.postMessage({ type: "pdf-chunk-ack", taskId, error });
+        safePost({ type: "pdf-chunk-ack", taskId, error });
       },
     );
     return;

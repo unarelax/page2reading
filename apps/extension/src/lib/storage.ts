@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, type ExtensionSettings, type TaskRecord } from "../types.js";
+import { settleInterrupted } from "./task-status.js";
 
 const TASKS_KEY = "tasks";
 const MAX_TASKS = 50;
@@ -30,6 +31,15 @@ export async function listTasks(): Promise<TaskRecord[]> {
     await chrome.storage.local.set({ [TASKS_KEY]: fresh });
   }
   return fresh;
+}
+
+/** Service Worker 启动时调用：进行中的任务已经没有执行者了。 */
+export async function failInflightTasks(finishedAt: string): Promise<number> {
+  const tasks = await listTasks();
+  const settled = settleInterrupted(tasks, finishedAt);
+  if (!settled.changed) return 0;
+  await chrome.storage.local.set({ [TASKS_KEY]: settled.tasks });
+  return settled.tasks.reduce((n, task, i) => n + (task !== tasks[i] ? 1 : 0), 0);
 }
 
 export async function upsertTask(task: TaskRecord): Promise<void> {

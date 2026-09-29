@@ -57,13 +57,26 @@ export function parseFrontmatter(src: string): {
     const end = src.indexOf("\n---", 3);
     if (end !== -1) {
       const fm = src.slice(3, end);
-      title = fm.match(/^title:\s*["']?(.*?)["']?\s*$/m)?.[1]?.trim() ?? "";
-      sourceUrl = fm.match(/^source:\s*["']?(.*?)["']?\s*$/m)?.[1]?.trim() ?? "";
-      author = fm.match(/^author:\s*["']?(.*?)["']?\s*$/m)?.[1]?.trim() ?? "";
-      published = fm.match(/^published:\s*["']?(.*?)["']?\s*$/m)?.[1]?.trim() ?? "";
-      collected = fm.match(/^collected:\s*["']?(.*?)["']?\s*$/m)?.[1]?.trim() ?? "";
+      title = fmValue(fm, "title");
+      sourceUrl = fmValue(fm, "source") || fmValue(fm, "url");
+      author = fmValue(fm, "author");
+      published = fmValue(fm, "published");
+      collected = fmValue(fm, "collected");
       body = src.slice(end + 4).replace(/^\s+/, "");
     }
   }
   return { body, title, sourceUrl, author, published, collected };
+}
+
+function fmValue(fm: string, key: string): string {
+  const m = fm.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
+  if (!m) return "";
+  const raw = m[1].trim();
+  if (!raw) return "";
+  try {
+    const v = JSON.parse(raw);
+    return typeof v === "string" ? v : String(v);
+  } catch {
+    return raw.replace(/^["']|["']$/g, "").trim();
+  }
 }

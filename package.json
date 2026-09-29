@@ -11,6 +11,7 @@
     "dev": "npm run dev -w @page2reading/extension",
     "build": "npm run build -w @page2reading/extension",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @page2reading/extension",
     "package": "npm run build && node scripts/package.mjs"
   },
   "devDependencies": {

@@ -70,19 +70,100 @@
 <main>
   <h1>Page2Reading 问题记录</h1>
   <p class="lead">导出链路上遇到的坑，和已经落到代码里的处理。新问题补在最上面。改完扩展要在 <code>chrome://extensions</code> 重新加载，浏览器跑的是 <code>apps/extension/dist/</code>。</p>
-  <p class="meta">最近更新 <time datetime="2026-09-24">2026-09-24</time></p>
+  <p class="meta">最近更新 <time datetime="2026-09-28">2026-09-28</time></p>
 
   <h2>导出实际在做什么</h2>
-  <p>Markdown 和 PDF 不是同一步。offscreen 文档先抽取正文（对照模式再分段翻译），把 <code>.md</code> 写进选定目录，然后才排版 PDF。</p>
-  <ol>
-    <li>markdown-it 把正文变成带 <code>style.css</code> 的 HTML。</li>
-    <li>HTML 放进 <code>chrome.storage.session</code>，打开一个不激活的隐藏标签页画出来，并等远程图片。</li>
-    <li>Service Worker 用 <code>chrome.debugger</code> 只附在这个隐藏页上，调用 <code>Page.printToPDF</code>。</li>
-    <li>PDF 按块解码，offscreen 文档用目录句柄逐块写入 <code>.pdf</code>。写完一块，再读下一块。</li>
-  </ol>
-  <p>扩展没有后台，也不能起本地进程，所以没有「把 md 交给一个库、拿回 pdf」这一步。版式靠 Chrome 的打印引擎，才能用系统里的中文字体、A4 和现有样式。</p>
+  <p>对照或原文写出 <code>.md</code>，主任务就算成功。短文（<strong>原文</strong>正文不超过约 3 万字）再走隐藏页 + <code>Page.printToPDF</code> 写出 <code>.pdf</code>。对照也按原文长度判断，不按对照稿翻倍后的字数。长文跳过 PDF。图只是链接，张数不限制。不再写 <code>.html</code>。</p>
+  <p>PDF 失败或跳过只记警告，不会把已经写好的 Markdown 标成失败。</p>
 
   <h2>已处理</h2>
+
+  <article>
+    <h3>对照卡在 0/6，PDF 没有标题、链接和二维码</h3>
+    <p><time datetime="2026-09-28">2026-09-28</time></p>
+    <p><strong>现象。</strong>弹窗一直显示「翻译中 0/6 第 1 组」。已经生成的 PDF 看不到原文标题、链接和文末二维码。</p>
+    <p><strong>原因。</strong>第 1 组请求没结束前进度不更新，看起来像卡住。Chrome 打印页把 <code>header</code>/<code>footer</code> 当成页眉页脚，再叠加 <code>displayHeaderFooter</code>，文首标题和文末二维码会被盖住。文末用 flex、二维码用 SVG，打印时也经常丢。</p>
+    <p><strong>处理。</strong>进度改成「第 1/6 组 · 请求中」，每次请求结束才续闲置计时。Markdown 转 PDF 会读 YAML 的 title/source，把标题和原文链接放在文首，文末再放链接和 PNG 二维码。扩展和本地 <code>build_pdf.mjs</code> 都这样处理。不再用 header/footer 标签。</p>
+  </article>
+
+  <article>
+    <h3>标题没译成中文会把整篇对照判失败</h3>
+    <p><time datetime="2026-09-28">2026-09-28</time></p>
+    <p><strong>现象。</strong>导出 <em>The UN challenges five centuries of cartography</em> 时报「第 1 块不像中文译文」。</p>
+    <p><strong>原因。</strong>模型常把英文标题原样送回。校验要求超过约 24 字就必须有汉字。失败后把整组对半拆，标题单独成块仍然没有汉字，整篇对照失败，Markdown 也不写。</p>
+    <p><strong>处理。</strong>对半拆只用于编号/格式失败。某一块没有汉字时，先保住已经译好的块，只重试失败的那些；仍没有汉字就保留英文，继续译后面，不再整篇失败。</p>
+  </article>
+
+  <article>
+    <h3>短文门槛从 2 万调到 3 万</h3>
+    <p><time datetime="2026-09-28">2026-09-28</time></p>
+    <p><strong>处理。</strong>仍只看原文正文。不超过约 3 万字视为短文，对照和原文都会打 PDF。按当前版式大约十到二十多页 A4。</p>
+  </article>
+
+  <article>
+    <h3>导出的 PDF 里有很多横线</h3>
+    <p><time datetime="2026-09-27">2026-09-27</time></p>
+    <p><strong>现象。</strong>PDF 每页上下、每个二级标题下面都有横线，对照稿更明显。</p>
+    <p><strong>原因。</strong>撑页边距的隐藏表和正文表格共用 <code>td { border }</code>，表头表尾每页重复，就变成页眉页脚横线。二级标题又画了底边，中英各一条。</p>
+    <p><strong>处理。</strong>隐藏表去掉边框。格子线只留给正文里的表格。二级标题不再画底边。</p>
+  </article>
+
+  <article>
+    <h3>长文对照越译越书面，表格还留着英文</h3>
+    <p><time datetime="2026-09-27">2026-09-27</time></p>
+    <p><strong>现象。</strong>分段翻译后半段容易退化成直译；Markdown 表格中英各留一张，读着重复。</p>
+    <p><strong>处理。</strong>按 <code>##</code> 章节打包（每组 1–3 节，仍受单次请求字数上限约束，避免再卡死）。第一段抽出最多 3 条风格锚点，后面各组沿用，不再每组覆盖。一组若明显偏书面（赋能/闭环/本质上/鉴于）会再译一次。表格只保留中文表。图片仍是链接，接在该段中文后面。全文拼完后对比前后半段口语词频，只打日志，不再整篇重译。</p>
+  </article>
+
+  <article>
+    <h3>短文门槛按打印稿字数，对照会被误判成长文</h3>
+    <p><time datetime="2026-09-27">2026-09-27</time></p>
+    <p><strong>现象。</strong>原文不到 2 万字的文章（例如 Claude 那篇现代化指南约 1.9 万字）对照导出后没有 PDF。原先按拿去打印的 Markdown 计，门槛约 1.2 万字，对照稿大约是原文两倍，很容易超。</p>
+    <p><strong>处理。</strong>只看原文正文。不超过约 2 万字视为短文，对照和原文都会打 PDF。</p>
+  </article>
+
+  <article>
+    <h3>对照翻译可以空转一个小时还不结束</h3>
+    <p><time datetime="2026-09-26">2026-09-26</time></p>
+    <p><strong>现象。</strong>弹窗一直显示「翻译中」，过了一个小时还没有 Markdown。</p>
+    <p><strong>原因。</strong>某一组格式不对或接口变慢时，会多次重试再对半拆开继续请求。每次请求开始都会刷新「5 分钟无进度」计时，整篇又有 90 分钟总上限，所以能空转很久。弹窗只在整组完成后才更新段数，看起来像卡住。</p>
+    <p><strong>处理。</strong>时间上限收紧并真正生效：单次请求 45 秒；只有译完一组、写出文件或 PDF 分块才续时，连续 4 分钟没有这类进度就停；对照翻译最多 12 分钟；整篇最多 18 分钟。重试开始不再刷新计时。</p>
+  </article>
+
+
+  <article>
+    <h3>长文 PDF 失败会把整篇导出标成失败</h3>
+    <p><time datetime="2026-09-26">2026-09-26</time></p>
+    <p><strong>现象。</strong>对照 Markdown 已经写好，PDF 一卡，弹窗仍像整篇没完成。</p>
+    <p><strong>处理。</strong><code>.md</code> 写完即成功。短文才打 PDF；原文正文超过约 3 万字就跳过。图只是链接，不按张数限制。PDF 失败只作为警告。不再写 <code>.html</code>。</p>
+  </article>
+
+
+  <article>
+    <h3>打印出来的 PDF 四边没有边距</h3>
+    <p><time datetime="2026-09-25">2026-09-25</time></p>
+    <p><strong>现象。</strong><code>How To Be Successful - Sam Altman.pdf</code> 是 A4，但正文从纸边开始，左边距和上边距都是 0。</p>
+    <p><strong>原因。</strong>打印对话框里的「边距：无」会盖掉 CSS 的 <code>@page</code> 边距。<code>body</code> 的内边距又只在第一页和最后一页有效，中间页仍然顶边。</p>
+    <p><strong>处理。</strong>用每页都会重复的表头、表尾留出上下约 16mm，单元格左右留出 18mm。这样对话框边距是「无」时，字也不会贴边。</p>
+  </article>
+
+
+  <article>
+    <h3>点「导出 PDF」后版式很差</h3>
+    <p><time datetime="2026-09-25">2026-09-25</time></p>
+    <p><strong>现象。</strong>阅读页本身正常，一进打印对话框，页面发黑、字发灰，中英段落挤在一起，两端对齐把行距拉开。</p>
+    <p><strong>原因。</strong>打印没用屏幕那套样式。浏览器若处于深色外观，没声明 <code>color-scheme: light</code> 时会把白底印成黑底。正文又继承了 <code>text-align: justify</code>。</p>
+    <p><strong>处理。</strong>打印强制白底深字、左对齐，英文和中文之间留出一小段间距。页码仍在页脚。</p>
+  </article>
+
+
+  <article>
+    <h3>长文自动转 PDF 让电脑发热、浏览器卡顿</h3>
+    <p><time datetime="2026-09-25">2026-09-25</time></p>
+    <p><strong>现象。</strong>篇幅一长，导出总在转 PDF 上失败或拖很久，电脑发热，浏览器明显卡。</p>
+    <p><strong>处理。</strong>导出改为同时写 <code>.md</code> 和 <code>.html</code>。HTML 在浏览器里阅读；PDF 改到阅读页上的按钮，走系统打印对话框，页脚是当前页/总页数。不点打印，就不会做分页和嵌图。</p>
+  </article>
+
 
   <article>
     <h3>PDF 生成出来是 0KB</h3>
@@ -153,10 +234,8 @@
 
   <h2>还在，但不要当成导出坏了</h2>
   <ul class="plain">
-    <li>Chrome 会提示「扩展正在调试此浏览器」。调试器只附在自己打开的隐藏渲染页上，不附在正在读的文章页。</li>
-    <li>Markdown 里的图片只是 URL。PDF 必须在隐藏页里把图下载下来嵌进去，总等待大约 15 秒。没加载上的图记成「完成（缺图）」，正文照样导出。</li>
-    <li>目录里已经有 <code>.md</code>、还没有 <code>.pdf</code>，表示正文写完了，打印还在进行或打印失败。看弹窗是「生成 PDF」还是具体错误。</li>
-    <li><code>Page.printToPDF</code> 单次命令上限 180 秒，每一块落盘的确认上限 60 秒。超过就失败，可以重试。</li>
+    <li>短文 PDF 仍走隐藏页打印。图是原文链接，加载失败会标成「完成（缺图）」，Markdown 不受影响。</li>
+    <li>长文目录里只有 <code>.md</code> 是预期行为，不是导出坏了。</li>
   </ul>
 </main>
 </body>

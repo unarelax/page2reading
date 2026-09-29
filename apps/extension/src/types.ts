@@ -13,7 +13,7 @@ export type TaskStatus =
 export interface ArticleFiles {
   originalMarkdown: string | null;
   bilingualMarkdown: string | null;
-  pdf: string;
+  pdf: string | null;
 }
 
 export interface TaskRecord {
@@ -125,6 +125,11 @@ export interface RenderReadyMessage {
   type: "render-ready";
   taskId: string;
   failedImages: string[];
+}
+
+export interface CancelPdfMessage {
+  type: "cancel-pdf";
+  taskId: string;
 }
 
 export interface GetTaskListMessage {

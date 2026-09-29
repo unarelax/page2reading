@@ -2,11 +2,25 @@
 
 @page {
   size: A4;
-  margin: 18mm 20mm 24mm 20mm;
+  /* 对话框里「边距：无」会把这里盖成 0，版心另用 print-sheet 留白。 */
+  margin: 0;
+
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    font-family: system-ui, sans-serif;
+    font-size: 9pt;
+    color: #888;
+    margin-right: 18mm;
+    margin-bottom: 8mm;
+  }
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  color-scheme: light;
 }
 
 html, body {
@@ -50,20 +64,27 @@ h1.doc-title {
 .doc-endmatter {
   margin-top: 2.4em;
   padding-top: 14pt;
+  padding-bottom: 8mm;
   border-top: 1.5px solid #ddd;
   page-break-inside: avoid;
 }
 
-.doc-end-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16pt;
+.doc-end-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: none !important;
+  margin: 0 !important;
+}
+
+.doc-end-table td {
+  border: none !important;
+  background: none !important;
+  padding: 0 !important;
+  vertical-align: top;
 }
 
 .doc-end-text {
-  flex: 1;
-  min-width: 0;
+  width: auto;
 }
 
 .doc-endmatter .doc-title {
@@ -77,15 +98,16 @@ h1.doc-title {
 }
 
 .doc-qr {
-  flex: 0 0 72pt;
-  width: 72pt;
-  height: 72pt;
+  width: 96px;
+  padding-left: 16pt !important;
+  text-align: right;
 }
 
-.doc-qr svg {
+.doc-qr-img {
   width: 72pt;
   height: 72pt;
   display: block;
+  margin: 0 0 0 auto;
 }
 
 .doc-meta,
@@ -113,8 +135,6 @@ h2 {
   font-size: 15pt;
   font-weight: 700;
   margin: 1.5em 0 0.6em 0;
-  padding-bottom: 5pt;
-  border-bottom: 1.5px solid #e2e2e2;
 }
 
 h3 {
@@ -206,7 +226,16 @@ pre code {
   border-radius: 0;
 }
 
-table {
+/* 版心用的 print-sheet 不能套内容表的格子线，否则每页页眉页脚都会印出横线。 */
+.print-sheet,
+.print-sheet > thead > tr > td,
+.print-sheet > tbody > tr > td,
+.print-sheet > tfoot > tr > td {
+  border: none;
+  background: none;
+}
+
+.print-sheet tbody td table:not(.doc-end-table) {
   width: 100%;
   border-collapse: collapse;
   margin: 0.8em 0 1.2em 0;
@@ -216,17 +245,18 @@ table {
   page-break-inside: auto;
 }
 
-tr {
+.print-sheet tbody td table:not(.doc-end-table) tr {
   page-break-inside: avoid;
 }
 
-th, td {
+.print-sheet tbody td table:not(.doc-end-table) th,
+.print-sheet tbody td table:not(.doc-end-table) td {
   border: 1px solid #c9c9c9;
   padding: 6px 8px;
   vertical-align: top;
 }
 
-th {
+.print-sheet tbody td table:not(.doc-end-table) th {
   background: #efefef;
   font-weight: 600;
   color: #111;
@@ -238,6 +268,8 @@ img {
   display: block;
   margin: 10px auto;
   page-break-inside: avoid;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
 }
 
 a {
@@ -249,4 +281,208 @@ hr {
   border: none;
   border-top: 1px solid #ccc;
   margin: 1.4em 0;
+}
+
+@media screen {
+  html {
+    background: #efe6d8;
+  }
+
+  body {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 6.2rem 1.75rem 5rem;
+    font-size: 21px;
+    line-height: 1.9;
+    background: #fbf7f1;
+    min-height: 100vh;
+    box-shadow: 0 0 0 1px rgba(80, 55, 30, 0.06);
+  }
+
+  .reader-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 18px;
+    background: rgba(251, 247, 241, 0.92);
+    border-bottom: none;
+    box-shadow: 0 8px 24px rgba(80, 55, 30, 0.05);
+    backdrop-filter: blur(10px);
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+
+  .reader-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #7a7168;
+  }
+
+  .reader-actions {
+    display: flex;
+    gap: 8px;
+    flex: none;
+  }
+
+  .reader-actions button {
+    font: inherit;
+    font-size: 13px;
+    border: 1px solid #d6c7b2;
+    background: #fff;
+    color: #1c1917;
+    border-radius: 8px;
+    padding: 7px 12px;
+    cursor: pointer;
+  }
+
+  .reader-actions button.primary {
+    background: #1c1917;
+    color: #fbf7f1;
+    border-color: #1c1917;
+  }
+
+  h1.doc-title {
+    font-size: 2.5rem;
+    line-height: 1.25;
+    margin-bottom: 0.45em;
+  }
+
+  .doc-startmatter,
+  .doc-endmatter,
+  h2,
+  hr {
+    border: none;
+  }
+
+  .doc-startmatter {
+    padding-bottom: 0;
+    margin-bottom: 2em;
+  }
+
+  .doc-endmatter {
+    margin-top: 3em;
+    padding-top: 0;
+  }
+
+  h2 {
+    font-size: 1.45rem;
+    margin: 2em 0 0.7em;
+    padding-bottom: 0;
+  }
+
+  h3 {
+    font-size: 1.2rem;
+  }
+
+  p.en {
+    font-size: 1.05em;
+    margin-bottom: 0.35em;
+  }
+
+  p.zh {
+    margin-bottom: 1.45em;
+  }
+
+  body.mode-original p,
+  body.mode-original p.en {
+    margin-bottom: 1.15em;
+  }
+
+  hr {
+    height: 2em;
+    margin: 0;
+  }
+
+  a {
+    color: #6b3d24;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  img {
+    border-radius: 6px;
+  }
+}
+
+@media screen {
+  .print-sheet,
+  .print-sheet tbody,
+  .print-sheet tr,
+  .print-sheet td {
+    display: block;
+    padding: 0;
+  }
+
+  .print-sheet thead,
+  .print-sheet tfoot {
+    display: none;
+  }
+}
+
+@media print {
+  .reader-bar {
+    display: none !important;
+  }
+
+  .print-sheet {
+    width: 100%;
+    border-collapse: collapse;
+    border: none;
+  }
+
+  .print-sheet > thead > tr > td,
+  .print-sheet > tbody > tr > td,
+  .print-sheet > tfoot > tr > td {
+    border: none;
+    padding: 0 18mm;
+    vertical-align: top;
+  }
+
+  .print-sheet thead {
+    display: table-header-group;
+  }
+
+  .print-sheet tfoot {
+    display: table-footer-group;
+  }
+
+  .print-gap {
+    height: 16mm;
+  }
+
+  html, body {
+    background: #fff !important;
+    color: #222 !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    box-shadow: none !important;
+    text-align: left;
+    font-size: 11pt;
+    line-height: 1.75;
+  }
+
+  p, li, h1, h2, h3, h4, h5, h6, blockquote {
+    text-align: left;
+  }
+
+  p.en {
+    margin-bottom: 0.2em;
+  }
+
+  p.zh {
+    margin-bottom: 0.95em;
+  }
+
+  body.mode-original p,
+  body.mode-original p.en {
+    margin-bottom: 0.85em;
+  }
 }

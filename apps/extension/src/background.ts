@@ -1,4 +1,5 @@
 import {
+  type CancelPdfMessage,
   type DoneMessage,
   type FailedMessage,
   type PdfErrorMessage,
@@ -10,29 +11,75 @@ import {
   type SubmitMessage,
   type TaskRecord,
 } from "./types.js";
-import { normalizeUrl, nowIso } from "./lib/util.js";
-import { listTasks, loadSettings, upsertTask } from "./lib/storage.js";
+import { normalizeUrl, nowIso, OFFSCREEN_CONNECT_TIMEOUT_MS } from "./lib/util.js";
+import { failInflightTasks, listTasks, loadSettings, upsertTask } from "./lib/storage.js";
 import { bytesToBase64 } from "./lib/base64-chunks.js";
 import { streamPageToPdf } from "./lib/pdf.js";
+import { createRunDispatch } from "./lib/run-dispatch.js";
+import { createSerialQueue } from "./lib/serial.js";
+import { INTERRUPTED_MESSAGE, mergeTaskPatch } from "./lib/task-status.js";
 
-// ---- offscreen 管道状态 ----
-let pipelinePort: chrome.runtime.Port | null = null;
-let pendingRun: RunMessage | null = null;
-let pendingPdf: {
+const dispatch = createRunDispatch<RunMessage>();
+const enqueue = createSerialQueue();
+
+void enqueue(() => failInflightTasks(nowIso()))
+  .then((n) => {
+    if (n) console.log("[p2r][sw] 已将中断任务标为失败", n);
+  })
+  .catch((err) => {
+    console.log("[p2r][sw] 恢复中断任务失败", err instanceof Error ? err.message : err);
+  });
+
+interface PendingPdf {
   taskId: string;
   port: chrome.runtime.Port;
   fileName: string;
+  tabId: number | null;
   ack: { resolve: () => void; reject: (e: Error) => void } | null;
-} | null = null;
+}
+
+let pendingPdf: PendingPdf | null = null;
 let runQueue: RunMessage[] = [];
 let offscreenBusy = false;
+let activeTaskId: string | null = null;
+let activeToken = 0;
+let runToken = 0;
+let connectTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function ensureOffscreen(): Promise<void> {
-  // 每个任务重建一个全新的 offscreen 文档，避免 SW 重启后残留旧端口导致任务卡死。
+function clearConnectTimer(): void {
+  if (connectTimer != null) clearTimeout(connectTimer);
+  connectTimer = null;
+}
+
+function safePost(port: { postMessage(message: unknown): void } | null | undefined, message: unknown): void {
+  if (!port) return;
+  try {
+    port.postMessage(message);
+  } catch {
+    /* 端口已断开 */
+  }
+}
+
+function tokenFromPort(port: chrome.runtime.Port): number | null {
+  const raw = port.sender?.url;
+  if (!raw) return null;
+  try {
+    const run = new URL(raw).searchParams.get("run");
+    if (!run) return null;
+    const n = Number(run);
+    return Number.isInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+async function ensureOffscreen(token: number): Promise<void> {
+  // 每个任务重建 offscreen。closeDocument resolve 之后旧 port 仍可能短暂留在变量里，必须先作废。
   await chrome.offscreen.closeDocument().catch(() => undefined);
+  dispatch.invalidatePort();
   try {
     await chrome.offscreen.createDocument({
-      url: "offscreen.html",
+      url: `offscreen.html?run=${token}`,
       reasons: ["BLOBS" as chrome.offscreen.Reason],
       justification: "翻译 + 渲染 HTML + 通过 File System Access API 写入 Markdown/PDF 文件",
     });
@@ -41,9 +88,32 @@ async function ensureOffscreen(): Promise<void> {
   }
 }
 
-function deliverRun(run: RunMessage): void {
-  if (pipelinePort) pipelinePort.postMessage(run);
-  else pendingRun = run;
+function armConnectTimer(run: RunMessage, token: number): void {
+  clearConnectTimer();
+  connectTimer = setTimeout(() => {
+    if (token !== activeToken) return;
+    if (dispatch.pending?.taskId !== run.taskId) return;
+    console.log("[p2r][sw] offscreen 未连上，放弃任务", run.taskId);
+    dispatch.clearPendingIf((m) => m.taskId === run.taskId);
+    void failAndFinish(run.taskId, token, "导出通道未连上，请重试");
+  }, OFFSCREEN_CONNECT_TIMEOUT_MS);
+}
+
+async function startRun(run: RunMessage, token: number): Promise<void> {
+  try {
+    await ensureOffscreen(token);
+    if (token !== activeToken) return;
+    const state = dispatch.deliver(run);
+    if (token !== activeToken) return;
+    console.log("[p2r][sw] 投递 run", run.taskId, state);
+    if (state === "waiting") armConnectTimer(run, token);
+    else clearConnectTimer();
+  } catch (err) {
+    if (token !== activeToken) return;
+    const error = err instanceof Error ? err.message : String(err);
+    console.log("[p2r][sw] 启动 offscreen 失败:", error);
+    await failAndFinish(run.taskId, token, error);
+  }
 }
 
 function pump(): void {
@@ -51,14 +121,78 @@ function pump(): void {
   const run = runQueue.shift();
   if (!run) return;
   offscreenBusy = true;
-  void ensureOffscreen().then(() => deliverRun(run));
+  const token = ++runToken;
+  activeToken = token;
+  activeTaskId = run.taskId;
+  void startRun(run, token);
 }
 
-async function updateTaskStatus(id: string, patch: Partial<TaskRecord>): Promise<void> {
-  const tasks = await listTasks();
-  const current = tasks.find((t) => t.id === id);
-  if (!current) return;
-  await upsertTask({ ...current, ...patch });
+function finishTask(token: number): void {
+  if (token === 0 || token !== activeToken) return;
+  activeToken = 0;
+  clearConnectTimer();
+  if (activeTaskId) dispatch.clearPendingIf((m) => m.taskId === activeTaskId);
+  offscreenBusy = false;
+  activeTaskId = null;
+  dispatch.invalidatePort();
+  console.log("[p2r][sw] finishTask：释放 offscreenBusy、关闭 offscreen、pump");
+  void chrome.offscreen.closeDocument().catch(() => undefined);
+  pump();
+}
+
+function updateTaskStatus(id: string, patch: Partial<TaskRecord>): Promise<void> {
+  return enqueue(async () => {
+    const tasks = await listTasks();
+    const current = tasks.find((t) => t.id === id);
+    if (!current) return;
+    const merged = mergeTaskPatch(current, patch);
+    if (!merged) return;
+    await upsertTask(merged);
+  });
+}
+
+function settle(taskId: string, token: number, patch: Partial<TaskRecord>): void {
+  void updateTaskStatus(taskId, patch).finally(() => {
+    if (activeTaskId !== taskId || token !== activeToken) return;
+    void discardPdf(taskId);
+    finishTask(token);
+  });
+}
+
+async function failAndFinish(taskId: string, token: number, error: string): Promise<void> {
+  if (token !== activeToken) return;
+  clearConnectTimer();
+  dispatch.clearPendingIf((m) => m.taskId === taskId);
+  await discardPdf(taskId);
+  try {
+    await updateTaskStatus(taskId, {
+      status: "failed",
+      finishedAt: nowIso(),
+      error,
+      progressNote: null,
+    });
+  } catch (err) {
+    console.log("[p2r][sw] 写入失败状态出错", err instanceof Error ? err.message : err);
+  } finally {
+    finishTask(token);
+  }
+}
+
+function takePdf(taskId?: string): PendingPdf | null {
+  const pending = pendingPdf;
+  if (!pending) return null;
+  if (taskId != null && pending.taskId !== taskId) return null;
+  pendingPdf = null;
+  return pending;
+}
+
+async function discardPdf(taskId?: string): Promise<void> {
+  const pending = takePdf(taskId);
+  if (!pending) return;
+  console.log("[p2r][sw] 关闭渲染页，taskId=", pending.taskId, "tabId=", pending.tabId);
+  pending.ack?.reject(new Error("导出已中断"));
+  await chrome.storage.session.remove(pending.taskId).catch(() => undefined);
+  if (pending.tabId != null) await chrome.tabs.remove(pending.tabId).catch(() => undefined);
 }
 
 async function handleSubmit(msg: SubmitMessage) {
@@ -70,7 +204,7 @@ async function handleSubmit(msg: SubmitMessage) {
   const normalizedUrl = normalizeUrl(msg.url);
   const taskId = crypto.randomUUID();
   const collectedAt = nowIso();
-  await upsertTask({
+  const record: TaskRecord = {
     id: taskId,
     url: msg.url,
     normalizedUrl,
@@ -83,7 +217,8 @@ async function handleSubmit(msg: SubmitMessage) {
     createdAt: collectedAt,
     finishedAt: null,
     progressNote: null,
-  });
+  };
+  await enqueue(() => upsertTask(record));
 
   runQueue.push({
     type: "run",
@@ -103,18 +238,26 @@ async function handleSubmit(msg: SubmitMessage) {
 async function handleRequestPdf(msg: RequestPdfMessage, port: chrome.runtime.Port): Promise<void> {
   const { taskId, html, fileName } = msg;
   console.log("[p2r][sw] 收到 request-pdf，taskId=", taskId);
-  await updateTaskStatus(taskId, { status: "rendering", progressNote: null });
-  await chrome.storage.session.set({ [taskId]: { html } });
-  pendingPdf = { taskId, port, fileName, ack: null };
-
-  const tab = await chrome.tabs.create({
-    url: chrome.runtime.getURL(`render.html?task=${encodeURIComponent(taskId)}`),
-    active: false,
-  });
-  console.log("[p2r][sw] render 标签页已创建，tabId=", tab.id);
-  if (tab.id == null) {
-    pendingPdf = null;
-    throw new Error("无法创建渲染页");
+  if (pendingPdf && pendingPdf.taskId !== taskId) await discardPdf(pendingPdf.taskId);
+  pendingPdf = { taskId, port, fileName, tabId: null, ack: null };
+  try {
+    await updateTaskStatus(taskId, { status: "rendering", progressNote: null });
+    await chrome.storage.session.set({ [taskId]: { html } });
+    if (pendingPdf?.taskId !== taskId) return;
+    const tab = await chrome.tabs.create({
+      url: chrome.runtime.getURL(`render.html?task=${encodeURIComponent(taskId)}`),
+      active: false,
+    });
+    console.log("[p2r][sw] render 标签页已创建，tabId=", tab.id);
+    if (pendingPdf?.taskId !== taskId) {
+      if (tab.id != null) await chrome.tabs.remove(tab.id).catch(() => undefined);
+      return;
+    }
+    if (tab.id == null) throw new Error("无法创建渲染页");
+    pendingPdf.tabId = tab.id;
+  } catch (err) {
+    await discardPdf(taskId);
+    throw err;
   }
 }
 
@@ -122,10 +265,17 @@ async function handleRenderReady(msg: RenderReadyMessage, tabId?: number): Promi
   const pending = pendingPdf;
   console.log("[p2r][sw] 收到 render-ready，taskId=", msg.taskId, "tabId=", tabId, "有 pending=", Boolean(pending), "pending.taskId=", pending?.taskId);
   if (!pending || pending.taskId !== msg.taskId) {
-    console.log("[p2r][sw] ⚠️ pendingPdf 为空或 taskId 不匹配，静默丢弃 render-ready（任务会卡住）");
+    console.log("[p2r][sw] render-ready 无匹配会话，关闭渲染页");
+    if (tabId != null) await chrome.tabs.remove(tabId).catch(() => undefined);
+    safePost(dispatch.port, { type: "pdf-error", taskId: msg.taskId, error: "渲染页已失效" } satisfies PdfErrorMessage);
     return;
   }
-  if (tabId == null) throw new Error("渲染页无 tab id");
+  if (tabId == null) {
+    safePost(pending.port, { type: "pdf-error", taskId: msg.taskId, error: "渲染页无 tab id" } satisfies PdfErrorMessage);
+    await discardPdf(msg.taskId);
+    return;
+  }
+  if (pending.tabId == null) pending.tabId = tabId;
   try {
     console.log("[p2r][sw] 开始 streamPageToPdf，tabId=", tabId);
     const byteLength = await streamPageToPdf(tabId, (chunk) => writeChunk(pending, chunk));
@@ -146,22 +296,15 @@ async function handleRenderReady(msg: RenderReadyMessage, tabId?: number): Promi
       taskId: msg.taskId,
       error: err instanceof Error ? err.message : String(err),
     };
-    try {
-      pending.port.postMessage(res);
-    } catch {
-      /* 管道已断开 */
-    }
+    safePost(pending.port, res);
   } finally {
-    pendingPdf = null;
+    if (pendingPdf?.taskId === msg.taskId) pendingPdf = null;
     await chrome.storage.session.remove(msg.taskId).catch(() => undefined);
     await chrome.tabs.remove(tabId).catch(() => undefined);
   }
 }
 
-function writeChunk(
-  pending: { taskId: string; port: chrome.runtime.Port; ack: { resolve: () => void; reject: (e: Error) => void } | null },
-  bytes: Uint8Array,
-): Promise<void> {
+function writeChunk(pending: PendingPdf, bytes: Uint8Array): Promise<void> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.ack = null;
@@ -189,13 +332,6 @@ function writeChunk(
   });
 }
 
-function finishTask(): void {
-  console.log("[p2r][sw] finishTask：释放 offscreenBusy、关闭 offscreen、pump");
-  offscreenBusy = false;
-  void chrome.offscreen.closeDocument().catch(() => undefined);
-  pump();
-}
-
 function handlePortMessage(msg: unknown, port: chrome.runtime.Port): void {
   const m = msg as { type?: string; taskId?: string; status?: string; error?: string; note?: string };
   if (!m?.type) return;
@@ -207,6 +343,11 @@ function handlePortMessage(msg: unknown, port: chrome.runtime.Port): void {
     else ack?.resolve();
     return;
   }
+  if (m.type === "cancel-pdf") {
+    const c = m as unknown as CancelPdfMessage;
+    void discardPdf(c.taskId);
+    return;
+  }
   if (m.type === "request-pdf") {
     handleRequestPdf(m as unknown as RequestPdfMessage, port).catch((err) => {
       console.log("[p2r][sw] handleRequestPdf 出错:", err instanceof Error ? err.message : err);
@@ -215,7 +356,7 @@ function handlePortMessage(msg: unknown, port: chrome.runtime.Port): void {
         taskId: (m as { taskId: string }).taskId,
         error: err instanceof Error ? err.message : String(err),
       };
-      port.postMessage(res);
+      safePost(port, res);
     });
     return;
   }
@@ -227,47 +368,60 @@ function handlePortMessage(msg: unknown, port: chrome.runtime.Port): void {
   if (m.type === "done") {
     const d = m as unknown as DoneMessage;
     console.log("[p2r][sw] 任务完成 done，status=", d.status);
-    void updateTaskStatus(d.taskId, {
+    settle(d.taskId, activeToken, {
       status: d.status,
       finishedAt: nowIso(),
       warnings: d.warnings,
       files: d.files,
       error: null,
       progressNote: null,
-    }).then(finishTask);
+    });
     return;
   }
   if (m.type === "failed") {
     const f = m as unknown as FailedMessage;
     console.log("[p2r][sw] 任务失败 failed:", f.error);
-    void updateTaskStatus(f.taskId, {
+    settle(f.taskId, activeToken, {
       status: "failed",
       finishedAt: nowIso(),
       error: f.error,
       progressNote: null,
-    }).then(finishTask);
-    return;
+    });
   }
 }
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "pipeline") return;
+  const token = tokenFromPort(port);
+  if (token != null && token !== activeToken) {
+    console.log("[p2r][sw] 忽略过期 offscreen 连接，run=", token);
+    return;
+  }
   console.log("[p2r][sw] pipeline 端口已连接");
-  pipelinePort = port;
+  dispatch.setPort(port);
   port.onMessage.addListener((msg) => handlePortMessage(msg, port));
   port.onDisconnect.addListener(() => {
     console.log("[p2r][sw] pipeline 端口已断开");
-    if (pipelinePort === port) pipelinePort = null;
-    if (pendingPdf?.port === port) {
-      pendingPdf.ack?.reject(new Error("导出已中断"));
-      pendingPdf = null;
+    const wasCurrent = dispatch.port === port;
+    if (wasCurrent) dispatch.invalidatePort();
+    if (pendingPdf?.port === port) void discardPdf(pendingPdf.taskId);
+    const taskId = activeTaskId;
+    const run = activeToken;
+    if (wasCurrent && offscreenBusy && taskId && run) {
+      void failAndFinish(taskId, run, INTERRUPTED_MESSAGE);
     }
   });
-  if (pendingRun) {
-    const run = pendingRun;
-    pendingRun = null;
-    console.log("[p2r][sw] 投递 pending run");
-    port.postMessage(run);
+  try {
+    const state = dispatch.flush();
+    if (state === "sent") clearConnectTimer();
+    if (state === "sent") console.log("[p2r][sw] onConnect 投递 pending run");
+  } catch (err) {
+    const pending = dispatch.pending;
+    console.log("[p2r][sw] onConnect 投递失败:", err instanceof Error ? err.message : err);
+    if (pending && activeTaskId === pending.taskId) {
+      dispatch.clearPendingIf((m) => m.taskId === pending.taskId);
+      void failAndFinish(pending.taskId, activeToken, err instanceof Error ? err.message : String(err));
+    }
   }
 });
 
@@ -280,7 +434,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (msg.type === "get-task-list") {
-    listTasks().then(sendResponse);
+    enqueue(() => listTasks())
+      .then(sendResponse)
+      .catch((err: Error) => sendResponse({ error: err.message }));
     return true;
   }
   if (msg.type === "render-ready") {
@@ -294,14 +450,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("[p2r][sw] 收到 render-failed，taskId=", m.taskId, "err=", m.error);
     const pending = pendingPdf;
     if (pending && pending.taskId === m.taskId) {
-      pending.port.postMessage({
+      safePost(pending.port, {
         type: "pdf-error",
         taskId: m.taskId,
         error: m.error || "渲染页失败",
-      });
-      pendingPdf = null;
-      void chrome.storage.session.remove(m.taskId ?? "").catch(() => undefined);
-      if (sender.tab?.id != null) void chrome.tabs.remove(sender.tab.id).catch(() => undefined);
+      } satisfies PdfErrorMessage);
+      void discardPdf(m.taskId);
+    } else if (sender.tab?.id != null) {
+      void chrome.tabs.remove(sender.tab.id).catch(() => undefined);
     }
     sendResponse({ ok: true });
     return true;
