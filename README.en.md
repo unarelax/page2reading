@@ -98,6 +98,8 @@ What this extension borrows are those design rules (palette, type sizes, line he
 
 Fonts resolve from your own machine, first match wins: `TsangerJinKai02 → Source Han Serif → Songti SC / STSong / SimSun`, with Charter / Georgia for English runs. **No font files are bundled**: TsangerJinKai02 is free for personal use only and needs a commercial license, so it is used only when you installed it into your system fonts yourself; otherwise the body falls back to your system serif. See [NOTICE](NOTICE) for licensing details.
 
+To get the Kami look — the kai-style serif — install TsangerJinKai02 as a system font (on macOS: double-click `TsangerJinKai02-W04.ttf` and `-W05.ttf`, or copy them into `~/Library/Fonts`). Do not leave them in a fontconfig-only directory such as `~/.local/share/fonts`: WeasyPrint reads it, Chrome does not. Once installed, body text uses W04 and headings W05, matching Kami's own mapping; without it nothing breaks, the text just falls back to your system serif.
+
 ## License
 
 [MIT](LICENSE)

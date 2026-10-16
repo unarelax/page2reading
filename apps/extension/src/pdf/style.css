@@ -27,6 +27,24 @@
   margin: 0;
 }
 
+/* 仓耳今楷02 装在系统字体里时，把 400/500 显式绑到 W04/W05（与 Kami 模板的映射一致）：
+   两个字重在系统里都注册成 Regular，只按家族名取的话标题会落到 W04。
+   没装字体时 local() 匹配不到，这条 @font-face 不生效，字体栈继续往下退到思源宋体/宋体。
+   注意 local() 只认 PostScript 名，中文名与「TsangerJinKai02 W05」这种全名都匹配不上。 */
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: local("TsangerJinKai02-W04");
+  font-weight: 400;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "TsangerJinKai02";
+  src: local("TsangerJinKai02-W05");
+  font-weight: 500;
+  font-style: normal;
+}
+
 * {
   box-sizing: border-box;
 }

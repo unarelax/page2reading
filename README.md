@@ -126,6 +126,8 @@ PDF 用的是 Chrome 自己的打印。正文抽取用 Mozilla Readability 和 T
 
 字体按「本机先找，找不到就退」的顺序取：`仓耳今楷02 → 思源宋体 → 宋体（Songti SC / STSong / SimSun）`，英文段落用 Charter / Georgia。**插件不打包任何字体文件**：仓耳今楷02 仅个人免费、商用需授权，只有你自己把它装进系统字体时才会被用上，否则正文落到系统宋体。许可与出处细节见 [NOTICE](NOTICE)。
 
+想让导出的文章就是 Kami 那种楷体观感，把仓耳今楷02 装进系统字体即可（macOS：双击 `TsangerJinKai02-W04.ttf` 与 `-W05.ttf`，或复制到 `~/Library/Fonts`）。注意别只放在 `~/.local/share/fonts` 这类 fontconfig 目录里——WeasyPrint 认，Chrome 不认。装好之后正文用 W04、标题用 W05，和 Kami 模板的映射一致；没装的话一切照旧，只是字体退到系统宋体。
+
 ## License
 
 [MIT](LICENSE)
