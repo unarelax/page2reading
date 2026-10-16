@@ -69,6 +69,7 @@ export async function markdownToHtml(
   const startmatter = `
 <div class="doc-startmatter">
   <h1 class="doc-title">${escapeHtml(title || "Untitled")}</h1>
+  ${author ? `<p class="doc-byline">${escapeHtml(author)}</p>` : ""}
   <p class="doc-meta">发布日期：${formatPublished(published)}</p>
   <p class="doc-meta">提取日期：${formatCollected(collected)}</p>
   ${sourceUrl ? `<p class="doc-source">${escapeHtml(sourceUrl)}</p>` : ""}
@@ -96,8 +97,8 @@ export async function markdownToHtml(
 </head>
 <body class="mode-${mode}">
 <table class="print-sheet">
-  <thead><tr><td><div class="print-gap"></div></td></tr></thead>
-  <tfoot><tr><td><div class="print-gap"></div></td></tr></tfoot>
+  <thead><tr><td><div class="print-gap-top"></div></td></tr></thead>
+  <tfoot><tr><td><div class="print-gap-bottom"></div></td></tr></tfoot>
   <tbody><tr><td>
 ${startmatter}
 ${html}

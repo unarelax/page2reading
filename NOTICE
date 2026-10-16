@@ -1,0 +1,49 @@
+Page2Reading — 致谢与第三方素材
+================================
+
+## 排版设计:参考 Kami
+
+本插件导出的 PDF 版式(配色令牌、pt 字号阶梯、行高与字距、A4 版心几何、表格发丝线)
+参考自 Kami:
+
+    Kami — Good content deserves good paper.
+    https://github.com/tw93/kami
+    Copyright (c) 2026 Tw93
+    MIT License
+
+感谢作者 tw93 把这套排版规则开源出来。本仓库只借鉴其设计规则,并用 Chrome 自己的打印
+能力重新实现(见 apps/extension/src/pdf/style.css);没有引入 Kami 的 Python 排版脚本、
+模板文件或校验脚本。
+
+Kami 的 MIT 许可全文:
+
+    MIT License
+
+    Copyright (c) 2026 Tw93
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+## 字体
+
+本仓库不打包、不再分发任何字体文件。打印样式里的字体栈只按名字引用本机字体:
+
+- 仓耳今楷02(TsangerJinKai02):个人免费,商用需向 https://tsanger.cn 取得授权。
+  只有用户自己把它装进系统字体时才会被用到(字体栈第一位),否则自动回退。
+- 思源宋体(Source Han Serif)、JetBrains Mono:OFL 许可。
+- Songti SC / STSong / SimSun、Charter、Georgia:来自操作系统,不随本仓库分发。

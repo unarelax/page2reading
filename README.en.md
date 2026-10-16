@@ -90,6 +90,14 @@ npm run package          # build and zip into releases/
 
 Load `apps/extension/dist/` the same way as the released zip. PDF export uses Chrome's own printing; body extraction uses Mozilla Readability and Turndown; translation goes through DeepSeek's OpenAI-compatible endpoint.
 
+## Typography
+
+The exported PDF follows the typesetting design of [Kami](https://github.com/tw93/kami). Kami (紙) is a design system for professional documents: a CJK serif stack, a pt type scale, warm grays with a yellow-brown undertone and a single ink-blue accent, plus A4 page geometry. Thanks to [tw93](https://github.com/tw93) for open-sourcing it under the MIT license.
+
+What this extension borrows are those design rules (palette, type sizes, line height, page margins, hairline table rules), reimplemented against Chrome's own print engine. Kami's Python layout scripts, templates, and verification scripts are not included.
+
+Fonts resolve from your own machine, first match wins: `TsangerJinKai02 → Source Han Serif → Songti SC / STSong / SimSun`, with Charter / Georgia for English runs. **No font files are bundled**: TsangerJinKai02 is free for personal use only and needs a commercial license, so it is used only when you installed it into your system fonts yourself; otherwise the body falls back to your system serif. See [NOTICE](NOTICE) for licensing details.
+
 ## License
 
 [MIT](LICENSE)
