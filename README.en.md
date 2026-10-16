@@ -62,6 +62,8 @@ your-folder/
 
 Images are not saved to disk; they are fetched over the network when the PDF is generated. If an image fails to load, the file is marked "done (missing images)". Tables in bilingual mode keep only the Chinese table. Long articles are translated section by section, and later sections follow the tone of the first.
 
+Each PDF opens with a cover page: parchment background, an ink-blue line with the author or source domain plus the export mode, a 36pt display title, and the author, dates, and source link at the bottom. Body text starts on page two, with a centered "page number · article title" footer and a QR code for the source link at the end. The cover carries no footer.
+
 ## Cost
 
 Bilingual mode sends the extracted body to `https://api.deepseek.com`, billed to your own DeepSeek account. Original-only mode never calls that API.
@@ -92,9 +94,9 @@ Load `apps/extension/dist/` the same way as the released zip. PDF export uses Ch
 
 ## Typography
 
-The exported PDF follows the typesetting design of [Kami](https://github.com/tw93/kami). Kami (紙) is a design system for professional documents: a CJK serif stack, a pt type scale, warm grays with a yellow-brown undertone and a single ink-blue accent, plus A4 page geometry. Thanks to [tw93](https://github.com/tw93) for open-sourcing it under the MIT license.
+The exported PDF follows the typesetting design of [Kami](https://github.com/tw93/kami). Kami (紙) is a design system for professional documents: a parchment page (`#f5f4ed`), a CJK serif stack, a pt type scale, warm grays with a yellow-brown undertone, a single ink-blue accent, and A4 page geometry (here the long-document spec, 20/22/22/22mm). Thanks to [tw93](https://github.com/tw93) for open-sourcing it under the MIT license.
 
-What this extension borrows are those design rules (palette, type sizes, line height, page margins, hairline table rules), reimplemented against Chrome's own print engine. Kami's Python layout scripts, templates, and verification scripts are not included.
+What this extension borrows are those design rules (parchment page, palette, type sizes, line height, page margins, cover layout, hairline table rules), reimplemented against Chrome's own print engine. Kami's Python layout scripts, templates, and verification scripts are not included. Chrome supports less than WeasyPrint, so a few things take a different route: page margins and the parchment background come from `@page`, and the footer is drawn by an `@page` margin box, with `@page:first` keeping the cover page free of a footer.
 
 Fonts resolve from your own machine, first match wins: `TsangerJinKai02 → Source Han Serif → Songti SC / STSong / SimSun`, with Charter / Georgia for English runs. **No font files are bundled**: TsangerJinKai02 is free for personal use only and needs a commercial license, so it is used only when you installed it into your system fonts yourself; otherwise the body falls back to your system serif. See [NOTICE](NOTICE) for licensing details.
 

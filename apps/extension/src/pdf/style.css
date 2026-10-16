@@ -20,11 +20,13 @@
           "Songti SC", monospace;
 }
 
-/* 页脚不写在这里：Chrome 没有 @page 边距盒，页脚由 CDP 的 footerTemplate 画。 */
+/* 版心与米色底都交给 @page：Chrome 支持 @page 的 margin 与 background。
+   页脚用边距盒，content 那一行由 render.ts 按文章标题注入（见 lib/pdf-footer.ts）。 */
 @page {
   size: A4;
-  /* 对话框里「边距：无」会把这里盖成 0，版心另用 print-sheet 留白。 */
-  margin: 0;
+  margin: 20mm 22mm 22mm 22mm;
+  /* 铺满整页的米色底：@page 里不用 var()，写字面值。 */
+  background: #f5f4ed;
 }
 
 /* 仓耳今楷02 装在系统字体里时，把 400/500 显式绑到 W04/W05（与 Kami 模板的映射一致）：
@@ -79,24 +81,55 @@ h1.doc-title {
   page-break-after: avoid;
 }
 
-.doc-startmatter {
+.doc-cover {
+  /* 封面页：上半屏放 eyebrow 与大标题，下半屏放作者/日期/原文链接。 */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 232mm;
+  padding-top: 32mm;
   margin: 0 0 18pt 0;
-  page-break-after: avoid;
+  break-after: page;
+  page-break-after: always;
 }
 
-.doc-startmatter .doc-byline {
-  font-size: 9pt;
+.doc-eyebrow {
+  font-size: 10pt;
+  font-weight: 500;
+  color: var(--brand);
+  letter-spacing: 1.5pt;
+  margin: 0 0 16pt 0;
+}
+
+.doc-cover-title {
+  font-size: 36pt;
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: 0.3pt;
+  color: var(--near-black);
+  margin: 0;
+  max-width: 92%;
+}
+
+.doc-cover-meta {
+  font-size: 10pt;
+  line-height: 1.5;
+}
+
+.doc-cover-meta p {
+  margin: 0 0 3pt 0;
+}
+
+.doc-cover-author {
   font-weight: 500;
   color: var(--dark-warm);
-  margin: 0 0 4pt 0;
-  text-align: left;
+  margin-bottom: 5pt !important;
 }
 
-.doc-startmatter .doc-meta {
-  font-size: 9pt;
+.doc-cover-meta .doc-meta,
+.doc-cover-meta .doc-source {
+  font-size: 10pt;
   color: var(--stone);
-  margin: 0 0 3pt 0;
-  text-align: left;
 }
 
 .doc-endmatter {
@@ -299,16 +332,8 @@ pre code {
   color: inherit;
 }
 
-/* 版心用的 print-sheet 不能套内容表的格子线，否则每页页眉页脚都会印出横线。 */
-.print-sheet,
-.print-sheet > thead > tr > td,
-.print-sheet > tbody > tr > td,
-.print-sheet > tfoot > tr > td {
-  border: none;
-  background: none;
-}
-
-.print-sheet tbody td table:not(.doc-end-table) {
+/* 正文里的表格（尾注那张两列表不参与）。 */
+table:not(.doc-end-table) {
   width: 100%;
   border-collapse: collapse;
   margin: 12pt 0;
@@ -320,19 +345,19 @@ pre code {
   page-break-inside: auto;
 }
 
-.print-sheet tbody td table:not(.doc-end-table) tr {
+table:not(.doc-end-table) tr {
   page-break-inside: avoid;
 }
 
-.print-sheet tbody td table:not(.doc-end-table) th,
-.print-sheet tbody td table:not(.doc-end-table) td {
+table:not(.doc-end-table) th,
+table:not(.doc-end-table) td {
   border: none;
   border-bottom: 0.25pt solid var(--border);
   padding: 5pt 8pt;
   vertical-align: top;
 }
 
-.print-sheet tbody td table:not(.doc-end-table) th {
+table:not(.doc-end-table) th {
   background: transparent;
   border-bottom: 0.6pt solid var(--border);
   font-weight: 500;
@@ -432,14 +457,14 @@ hr {
     margin-bottom: 0.45em;
   }
 
-  .doc-startmatter,
+  .doc-cover,
   .doc-endmatter,
   h2,
   hr {
     border: none;
   }
 
-  .doc-startmatter {
+  .doc-cover {
     padding-bottom: 0;
     margin-bottom: 2em;
   }
@@ -490,17 +515,9 @@ hr {
 }
 
 @media screen {
-  .print-sheet,
-  .print-sheet tbody,
-  .print-sheet tr,
-  .print-sheet td {
-    display: block;
-    padding: 0;
-  }
-
-  .print-sheet thead,
-  .print-sheet tfoot {
-    display: none;
+  .doc-cover {
+    min-height: 0;
+    padding-top: 0;
   }
 }
 
@@ -509,39 +526,8 @@ hr {
     display: none !important;
   }
 
-  .print-sheet {
-    width: 100%;
-    border-collapse: collapse;
-    border: none;
-  }
-
-  .print-sheet > thead > tr > td,
-  .print-sheet > tbody > tr > td,
-  .print-sheet > tfoot > tr > td {
-    border: none;
-    padding: 0 22mm;
-    vertical-align: top;
-  }
-
-  .print-sheet thead {
-    display: table-header-group;
-  }
-
-  .print-sheet tfoot {
-    display: table-footer-group;
-  }
-
-  /* 上边距 20mm、下边距 22mm：下方留给 CDP 画出来的页脚。 */
-  .print-gap-top {
-    height: 20mm;
-  }
-
-  .print-gap-bottom {
-    height: 22mm;
-  }
-
   html, body {
-    background: #fff !important;
+    background: var(--parchment) !important;
     color: var(--near-black) !important;
     max-width: none !important;
     margin: 0 !important;

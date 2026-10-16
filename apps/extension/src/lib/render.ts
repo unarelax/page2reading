@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
 import QRCode from "qrcode";
 import type { ExportMode } from "../types.js";
+import { buildFooterCss } from "./pdf-footer.js";
 import { parseFrontmatter } from "./paths.js";
 import css from "../pdf/style.css?raw";
 
@@ -49,6 +50,17 @@ function formatCollected(collected: string): string {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
+/** 封面 eyebrow 左半边：有作者就用作者，没有就用原文域名（如 paulgraham.com）。 */
+function eyebrowSource(author: string, sourceUrl: string): string {
+  if (author) return author;
+  if (!sourceUrl) return "";
+  try {
+    return new URL(sourceUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
 /** 按原文正文判断：超过约 3 万字则跳过 PDF；短文返回 null。 */
 export function skipPdfReason(originalMd: string): string | null {
   const { body } = parseFrontmatter(originalMd);
@@ -66,14 +78,23 @@ export async function markdownToHtml(
   const html = addLangClasses(md.render(body));
   const metaBits = [author, published].filter(Boolean).join(" · ");
   const qr = sourceUrl ? await qrPng(sourceUrl) : "";
-  const startmatter = `
-<div class="doc-startmatter">
-  <h1 class="doc-title">${escapeHtml(title || "Untitled")}</h1>
-  ${author ? `<p class="doc-byline">${escapeHtml(author)}</p>` : ""}
-  <p class="doc-meta">发布日期：${formatPublished(published)}</p>
-  <p class="doc-meta">提取日期：${formatCollected(collected)}</p>
-  ${sourceUrl ? `<p class="doc-source">${escapeHtml(sourceUrl)}</p>` : ""}
-</div>`;
+  // 封面：eyebrow（墨蓝）+ 36pt 大标题在上，作者/日期/原文链接贴在下半屏底。
+  const eyebrow = [eyebrowSource(author, sourceUrl), mode === "bilingual" ? "中英对照" : "原文"]
+    .filter(Boolean)
+    .join(" · ");
+  const cover = `
+<section class="doc-cover">
+  <div>
+    <p class="doc-eyebrow">${escapeHtml(eyebrow)}</p>
+    <h1 class="doc-cover-title">${escapeHtml(title || "Untitled")}</h1>
+  </div>
+  <div class="doc-cover-meta">
+    ${author ? `<p class="doc-cover-author">${escapeHtml(author)}</p>` : ""}
+    <p class="doc-meta">发布日期：${formatPublished(published)}</p>
+    <p class="doc-meta">提取日期：${formatCollected(collected)}</p>
+    ${sourceUrl ? `<p class="doc-source">${escapeHtml(sourceUrl)}</p>` : ""}
+  </div>
+</section>`;
   const endmatter = `
 <div class="doc-endmatter">
   <table class="doc-end-table">
@@ -94,17 +115,12 @@ export async function markdownToHtml(
 <meta name="referrer" content="no-referrer">
 <title>${escapeHtml(title || "document")}</title>
 <style>${css}</style>
+<style>${buildFooterCss(title)}</style>
 </head>
 <body class="mode-${mode}">
-<table class="print-sheet">
-  <thead><tr><td><div class="print-gap-top"></div></td></tr></thead>
-  <tfoot><tr><td><div class="print-gap-bottom"></div></td></tr></tfoot>
-  <tbody><tr><td>
-${startmatter}
+${cover}
 ${html}
 ${endmatter}
-  </td></tr></tbody>
-</table>
 </body>
 </html>`;
   return { html: doc, title };

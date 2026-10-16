@@ -1,6 +1,5 @@
 // chrome.debugger + CDP Page.printToPDF：把已渲染好的 tab 打印成 A4 PDF。
 import { createBase64Decoder } from "./base64-chunks.js";
-import { buildFooterTemplate } from "./pdf-footer.js";
 
 const IO_READ_CHUNK_BYTES = 2 * 1024 * 1024; // 每次读 2MB
 
@@ -73,7 +72,6 @@ async function readStream(
 /** attach → Page.enable → printToPDF（ReturnAsStream）→ 分块回调 → detach。 */
 export async function streamPageToPdf(
   tabId: number,
-  title: string | null,
   onChunk: (bytes: Uint8Array) => Promise<void>,
 ): Promise<number> {
   console.log("[p2r][pdf] attach debugger，tabId=", tabId);
@@ -85,9 +83,8 @@ export async function streamPageToPdf(
       transferMode: "ReturnAsStream",
       printBackground: true,
       preferCSSPageSize: true,
-      displayHeaderFooter: true,
-      headerTemplate: "<div></div>",
-      footerTemplate: buildFooterTemplate(title),
+      // 页脚走 CSS 的 @page 边距盒（见 pdf-footer.ts），不用 CDP 的 header/footer 模板。
+      displayHeaderFooter: false,
     }, 180_000);
     console.log("[p2r][pdf] printToPDF 命令返回，stream=", typeof result?.stream === "string" ? result.stream : "无");
     const stream = typeof result?.stream === "string" ? result.stream : "";
