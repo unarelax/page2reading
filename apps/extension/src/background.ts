@@ -277,9 +277,11 @@ async function handleRenderReady(msg: RenderReadyMessage, tabId?: number): Promi
   }
   if (pending.tabId == null) pending.tabId = tabId;
   try {
-    // 页脚要印文章标题，任务记录里有；取不到就退化成「未命名」。
-    const tasks = await listTasks();
-    const articleTitle = tasks.find((task) => task.id === pending.taskId)?.pageTitle ?? null;
+    // 页脚要印文章标题，任务记录里有；读不到也不能拦住打印，退化成「未命名」。
+    const articleTitle = await enqueue(() => listTasks()).then(
+      (tasks) => tasks.find((task) => task.id === pending.taskId)?.pageTitle ?? null,
+      () => null,
+    );
     console.log("[p2r][sw] 开始 streamPageToPdf，tabId=", tabId);
     const byteLength = await streamPageToPdf(tabId, articleTitle, (chunk) => writeChunk(pending, chunk));
     console.log("[p2r][sw] streamPageToPdf 完成，字节=", byteLength);
